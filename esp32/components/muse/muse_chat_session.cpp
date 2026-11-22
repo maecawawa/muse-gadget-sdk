@@ -85,6 +85,7 @@ extern "C" {
 #include "muse_options.h"
 #include "sdkconfig.h"
 #if CONFIG_MUSE_FISH_TTS
+#include <cmath>
 #include "esp_http_client.h"
 #endif
 #if CONFIG_MUSE_REALTIME_VOICE
@@ -2342,6 +2343,27 @@ static void pace_silently(void)
     }
 }
 
+#if CONFIG_MUSE_FISH_TTS && CONFIG_MUSE_FISH_TTS_GAIN_DB > 0
+static void fish_apply_playback_gain(int16_t *pcm, size_t n)
+{
+    static const float gain = std::pow(10.0f, CONFIG_MUSE_FISH_TTS_GAIN_DB / 20.0f);
+    constexpr float full_scale = 32767.0f;
+    constexpr float knee = 0.89f * full_scale;
+    constexpr float headroom = full_scale - knee;
+    for (size_t i = 0; i < n; ++i) {
+        const float amplified = pcm[i] * gain;
+        const float magnitude = std::fabs(amplified);
+        float limited = magnitude;
+        if (magnitude > knee) {
+            // Match the linear slope at the knee and approach full scale smoothly.
+            const float excess = magnitude - knee;
+            limited = knee + headroom * excess / (headroom + excess);
+        }
+        pcm[i] = static_cast<int16_t>(std::copysign(limited, amplified));
+    }
+}
+#endif
+
 /* Decodes buffered MP3 while the reply buffer has room. */
 static void decode(void)
 {
@@ -2385,6 +2407,9 @@ static void decode(void)
         }
         size_t n = resample(&s_turn.down, s_pcm, samples, s_pcm16);
         if (s_turn.gen == s_gen.load()) {
+#if CONFIG_MUSE_FISH_TTS && CONFIG_MUSE_FISH_TTS_GAIN_DB > 0
+            fish_apply_playback_gain(s_pcm16, n);
+#endif
             mark(M_AUDIO);
             xStreamBufferSend(s_out, s_pcm16, n * sizeof(int16_t), 0);
         }

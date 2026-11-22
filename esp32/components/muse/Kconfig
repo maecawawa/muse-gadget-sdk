@@ -21,6 +21,12 @@ menu "Muse"
         depends on LOG_MAXIMUM_LEVEL < 4
         default n
 
+    config MUSE_FISH_TTS_GAIN_DB
+        int "Fish TTS playback gain (dB)"
+        depends on MUSE_FISH_TTS
+        range 0 12
+        default 6
+
     config MUSE_FISH_TTS_URL
         string "Fish Audio Worker HTTPS URL"
         depends on MUSE_FISH_TTS
