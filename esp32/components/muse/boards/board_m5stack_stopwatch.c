@@ -102,7 +102,7 @@ static const char *TAG = "board";
 #define LCD_D3 GPIO_NUM_45
 #define DRAW_BUF_LINES 118         /* four bands to the screen (muse_lcd_bands.h) */
 #define LCD_CHUNK_BYTES (LCD_RES * 8 * 2)
-#define LCD_LEVEL_BOOT 0xA0        /* M5GFX's brightness, until the UI sets its own */
+#define LCD_LEVEL_BOOT 0x7F
 #define LCD_POWER_UP_MS 20         /* 3V3_L3B up before the reset is let go; M5GFX waits 10 */
 #define LCD_RESET_MS 120           /* the panel's wake from reset, as init() waits */
 

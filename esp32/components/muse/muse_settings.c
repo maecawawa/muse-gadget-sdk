@@ -56,7 +56,11 @@ static struct {
     .volume = CONFIG_MUSE_DEFAULT_VOLUME,
     .speaker_on = true,
     .mic_gain = 30,
+#if CONFIG_MUSE_BOARD_M5STACK_STOPWATCH_FAMILY
+    .brightness = 50,
+#else
     .brightness = 100,
+#endif
     .sleep_s = 120,
     .text_size = TEXT_SIZE_UNSET,
     .wifi_on = true,
