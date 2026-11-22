@@ -1,8 +1,16 @@
 #include "muse_b_light.h"
 #include <string.h>
 
+#if CONFIG_MUSE_CJK_FONT_JP
+LV_FONT_DECLARE(muse_font_jp_noto_16)
+#elif CONFIG_MUSE_CJK_FONT_NOTO
 LV_FONT_DECLARE(muse_font_cjk_noto_16)
+#else
+LV_FONT_DECLARE(muse_font_cjk_16)
+#endif
+#if !CONFIG_MUSE_CJK_FONT_JP
 LV_FONT_DECLARE(muse_font_b_ja_16)
+#endif
 
 extern const uint8_t muse_b_portrait_data[] __asm__("_binary_muse_b_portraits_rgb565_start");
 
@@ -30,7 +38,21 @@ const lv_image_dsc_t *muse_b_portrait(muse_mode_t mode, bool happy)
 
 const lv_font_t *muse_b_font(const lv_font_t *base)
 {
-    static lv_font_t fonts[4], cjk;
+    static lv_font_t fonts[4];
+#if CONFIG_MUSE_CJK_FONT_JP
+    const lv_font_t *cjk = &muse_font_jp_noto_16;
+#else
+    static lv_font_t fallback;
+    if (!fallback.get_glyph_dsc) {
+#if CONFIG_MUSE_CJK_FONT_NOTO
+        fallback = muse_font_cjk_noto_16;
+#else
+        fallback = muse_font_cjk_16;
+#endif
+        fallback.fallback = &muse_font_b_ja_16;
+    }
+    const lv_font_t *cjk = &fallback;
+#endif
     int index = base == &lv_font_montserrat_14 ? 0 :
                 base == &lv_font_montserrat_20 ? 2 :
                 base == &lv_font_montserrat_28 ? 3 : 1;
@@ -39,13 +61,17 @@ const lv_font_t *muse_b_font(const lv_font_t *base)
         &lv_font_montserrat_20, &lv_font_montserrat_28,
     };
     if (!fonts[index].get_glyph_dsc) {
-        if (!cjk.get_glyph_dsc) {
-            cjk = muse_font_cjk_noto_16;
-            cjk.fallback = &muse_font_b_ja_16;
-        }
         fonts[index] = *bases[index];
-        fonts[index].fallback = &cjk;
+        fonts[index].fallback = cjk;
+#if CONFIG_MUSE_CJK_FONT_JP
+        /* LVGL draws fallback glyphs using the primary font's baseline. */
+        int ascent = LV_MAX(fonts[index].line_height - fonts[index].base_line,
+                            cjk->line_height - cjk->base_line);
+        fonts[index].base_line = LV_MAX(fonts[index].base_line, cjk->base_line);
+        fonts[index].line_height = ascent + fonts[index].base_line;
+#else
         fonts[index].line_height = LV_MAX(fonts[index].line_height, 21);
+#endif
     }
     return &fonts[index];
 }

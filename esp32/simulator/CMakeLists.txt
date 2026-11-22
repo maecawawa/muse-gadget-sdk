@@ -191,10 +191,9 @@ if(MUSE_SIM_STOPWATCH_B_LIGHT)
         "${MUSE_COMPONENT_DIR}/muse_settings_ui.c"
         "${MUSE_COMPONENT_DIR}/muse_keypad.c"
         "${MUSE_COMPONENT_DIR}/muse_b_light.c"
-        "${MUSE_COMPONENT_DIR}/fonts/muse_font_b_ja_16.c"
-        "${MUSE_COMPONENT_DIR}/fonts/muse_font_cjk_noto_16.c")
+        "${MUSE_COMPONENT_DIR}/fonts/muse_font_jp_noto_16.c")
     target_compile_definitions(muse_simulator PRIVATE _POSIX_C_SOURCE=200809L CONFIG_LV_USE_SNAPSHOT=1 CONFIG_MUSE_UI_B_LIGHT=1
-        CONFIG_MUSE_CJK_FONT=1 CONFIG_MUSE_CJK_FONT_NOTO=1)
+        CONFIG_MUSE_CJK_FONT=1 CONFIG_MUSE_CJK_FONT_JP=1)
 endif()
 
 target_include_directories(muse_simulator PRIVATE

@@ -397,6 +397,8 @@ static void *json_alloc(size_t n)
 
 /* ---- Events to the voice task ---- */
 
+static size_t whole_chars(const char *s, size_t n);
+
 static void emit(muse_hatch_ev_t type, const char *text)
 {
     if (s_turn.text) {
@@ -408,7 +410,10 @@ static void emit(muse_hatch_ev_t type, const char *text)
     if (type == MUSE_HATCH_EV_HEARD) {
         muse_hatch_tail_words(text ? text : "", ev.text, sizeof(ev.text));
     } else if (text) {
-        strlcpy(ev.text, text, sizeof(ev.text));
+        size_t n = strnlen(text, sizeof(ev.text) - 1);
+        n = whole_chars(text, n);
+        memcpy(ev.text, text, n);
+        ev.text[n] = '\0';
     }
 #if CONFIG_MUSE_RESEND_NOTES
     if (type == MUSE_HATCH_EV_ERROR) {
@@ -1656,11 +1661,18 @@ static void append_text(msg_t &m, const char *text)
     m.len += add;
     size_t have = strlen(m.tail);
     if (add >= sizeof(m.tail) - 1) {
-        strlcpy(m.tail, text + add - (sizeof(m.tail) - 1), sizeof(m.tail));
+        const char *start = text + add - (sizeof(m.tail) - 1);
+        while ((static_cast<unsigned char>(*start) & 0xc0) == 0x80) {
+            ++start;
+        }
+        strlcpy(m.tail, start, sizeof(m.tail));
         return;
     }
     if (have + add >= sizeof(m.tail)) {
         size_t drop = have + add - (sizeof(m.tail) - 1);
+        while ((static_cast<unsigned char>(m.tail[drop]) & 0xc0) == 0x80) {
+            ++drop;
+        }
         memmove(m.tail, m.tail + drop, have - drop + 1);
     }
     strlcat(m.tail, text, sizeof(m.tail));
@@ -2270,8 +2282,12 @@ static void start_tts(void)
         s_fish_gain_stats = {};
 #endif
 #if CONFIG_MUSE_FISH_TTS
-        const char *text = s_turn.texts ? s_turn.texts + i * TEXT_MAX : nullptr;
-        s_turn.silent = !fish_open(text);
+        if (muse_settings_speaker_on()) {
+            const char *text = s_turn.texts ? s_turn.texts + i * TEXT_MAX : nullptr;
+            s_turn.silent = !fish_open(text);
+        } else {
+            ESP_LOGI(TAG, "tts skipped (speaker off)");
+        }
 #endif
         return;
     }
@@ -2289,6 +2305,17 @@ static void tts_data(const uint8_t *data, size_t len)
 }
 
 #if CONFIG_MUSE_FISH_TTS
+static void fish_stop_if_muted(void)
+{
+    if (s_turn.tts_msg >= 0 && !s_turn.silent && !muse_settings_speaker_on()) {
+        fish_close();
+        s_turn.mp3_len = 0;
+        s_turn.mp3_ended = false;
+        s_turn.silent = true;
+        ESP_LOGI(TAG, "tts stopped (speaker off)");
+    }
+}
+
 static void fish_read(void)
 {
     esp_http_client_handle_t http = s_turn.fish_http;
@@ -2402,6 +2429,9 @@ static void fish_log_playback_gain(void)
 /* Decodes buffered MP3 while the reply buffer has room. */
 static void decode(void)
 {
+#if CONFIG_MUSE_FISH_TTS
+    fish_stop_if_muted();
+#endif
     if (s_turn.tts_msg < 0) {
         return;
     }
@@ -2982,7 +3012,10 @@ static void hatch_task(void *arg)
         if (s_turn.phase == P_WAIT_REPLY) {
             start_tts();
 #if CONFIG_MUSE_FISH_TTS
-            fish_read();
+            fish_stop_if_muted();
+            if (!s_turn.silent) {
+                fish_read();
+            }
 #endif
             decode();
         }

@@ -684,7 +684,10 @@ static const lv_font_t *font_pick(const lv_font_t *full, const lv_font_t *compac
     return s_small ? compact : full;
 }
 
-#if CONFIG_MUSE_CJK_FONT_NOTO
+#if CONFIG_MUSE_CJK_FONT_JP
+LV_FONT_DECLARE(muse_font_jp_noto_16)
+#define CJK_FONT muse_font_jp_noto_16
+#elif CONFIG_MUSE_CJK_FONT_NOTO
 LV_FONT_DECLARE(muse_font_cjk_noto_16)
 #define CJK_FONT muse_font_cjk_noto_16
 #elif CONFIG_MUSE_CJK_FONT

@@ -459,7 +459,7 @@ menu "Muse"
         bool "Concept B light UI for M5Stack StopWatch"
         depends on MUSE_ENABLED && MUSE_BOARD_M5STACK_STOPWATCH
         select MUSE_CJK_FONT
-        select MUSE_CJK_FONT_NOTO
+        select MUSE_CJK_FONT_JP
         default n
         help
             Use the Japanese light interface and eight flash-resident still portraits.
@@ -487,6 +487,14 @@ menu "Muse"
             GB2312 rather than every CJK Unified Ideograph, and no Hangul:
             rarer characters and Korean show as boxes. Takes about 910 KB of
             flash, against about 1.2 MB.
+
+    config MUSE_CJK_FONT_JP
+        bool "Draw CJK captions with Noto Sans JP (JIS Level 1 & 2) instead of Unifont"
+        depends on MUSE_CJK_FONT
+        default n
+        help
+            Use Noto Sans JP Medium at 16 px, covering JIS X 0208,
+            kana, fullwidth forms, and common Japanese punctuation.
 
     config MUSE_LATIN_FONT
         bool "Show Vietnamese and other accented letters in captions"
