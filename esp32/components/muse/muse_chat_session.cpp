@@ -84,6 +84,9 @@ extern "C" {
 #include "muse_chat_priv.h"
 #include "muse_options.h"
 #include "sdkconfig.h"
+#if CONFIG_MUSE_FISH_TTS
+#include "esp_http_client.h"
+#endif
 #if CONFIG_MUSE_REALTIME_VOICE
 #include "muse_voice_call_priv.h"
 #endif
@@ -293,7 +296,12 @@ struct turn_t {
     bool agent_busy;
     /* TTS */
     int tts_msg;             /* message being fetched (or shown, speaker off), or -1 */
-    bool silent;             /* speaker off: tts_msg is paced by silence, not fetched */
+    bool silent;             /* caption pacing without speech */
+#if CONFIG_MUSE_FISH_TTS
+    esp_http_client_handle_t fish_http;
+    char *fish_chunk;         /* small PSRAM read buffer */
+    int64_t fish_last_read_us;
+#endif
     uint8_t *mp3;            /* MP3_BUF */
     size_t mp3_len;
     bool mp3_ended;
@@ -1121,6 +1129,18 @@ static void turn_reset_streams(void)
     }
 }
 
+#if CONFIG_MUSE_FISH_TTS
+static void fish_close(void)
+{
+    if (s_turn.fish_http) {
+        esp_http_client_cleanup(s_turn.fish_http);
+        s_turn.fish_http = nullptr;
+    }
+    heap_caps_free(s_turn.fish_chunk);
+    s_turn.fish_chunk = nullptr;
+}
+#endif
+
 static void turn_finish(void)
 {
     if (s_option_sending) {
@@ -1129,6 +1149,9 @@ static void turn_finish(void)
         s_option_sending = false;
     }
     turn_reset_streams();
+#if CONFIG_MUSE_FISH_TTS
+    fish_close();
+#endif
     s_turn.phase = P_IDLE;
     s_turn.dict_id = s_turn.chat_id = 0;
     s_turn.tts_msg = -1;
@@ -2132,6 +2155,91 @@ static void on_chat_ack(stream_t *s)
 
 /* ---- Turn: speech ---- */
 
+static void caption_pacing(msg_t &m)
+{
+    m.pcm_start = s_turn.pcm_out;
+    /* Pace the text shown on the display. Longer replies remain in review. */
+    size_t shown = s_turn.texts ? CAPTION_LEN(s_turn.texts + (&m - s_turn.msgs) * TEXT_MAX) : m.len;
+    m.pcm_frames = static_cast<uint32_t>(shown * MIC_RATE / TEXT_CHARS_PER_S);
+}
+
+#if CONFIG_MUSE_FISH_TTS
+static constexpr int FISH_CHUNK = 2048;
+static constexpr int FISH_MAX_CHARS = 500;
+static constexpr int64_t FISH_IDLE_US = 15000000;
+
+static bool fish_open(const char *text)
+{
+    const char *url = CONFIG_MUSE_FISH_TTS_URL;
+    // ESP-IDF can log malformed URLs. Worker endpoints need no query.
+    if (!text || !*text || !s_turn.mp3 || !CONFIG_MUSE_FISH_TTS_TOKEN[0] ||
+        strncmp(url, "https://", 8) != 0 || strpbrk(url, "?#")) {
+        return false;
+    }
+
+    s_turn.fish_chunk = static_cast<char *>(heap_caps_malloc(FISH_CHUNK, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT));
+    if (!s_turn.fish_chunk) {
+        return false;
+    }
+    // Muse text is UTF-8. Count leading bytes and keep the complete last scalar.
+    size_t bytes = 0;
+    for (int chars = 0; text[bytes]; ++bytes) {
+        if ((static_cast<unsigned char>(text[bytes]) & 0xc0) != 0x80 && ++chars > FISH_MAX_CHARS) {
+            break;
+        }
+    }
+    bytes = whole_chars(text, bytes);
+    static_assert(FISH_CHUNK > FISH_MAX_CHARS * 4, "UTF-8 truncation buffer too small");
+    memcpy(s_turn.fish_chunk, text, bytes);
+    s_turn.fish_chunk[bytes] = '\0';
+    cJSON *request = cJSON_CreateObject();
+    char *body = request && cJSON_AddStringToObject(request, "text", s_turn.fish_chunk)
+        ? cJSON_PrintUnformatted(request) : nullptr;
+    cJSON_Delete(request);
+
+    int status = 0;
+    bool ok = false;
+    if (body) {
+        esp_http_client_config_t config{};
+        config.url = url;
+        config.method = HTTP_METHOD_POST;
+        config.crt_bundle_attach = esp_crt_bundle_attach;
+        config.disable_auto_redirect = true;
+        config.timeout_ms = 18000;
+        config.buffer_size = FISH_CHUNK;
+        config.buffer_size_tx = 1024;
+        s_turn.fish_http = esp_http_client_init(&config);
+        esp_http_client_handle_t http = s_turn.fish_http;
+        int len = static_cast<int>(strlen(body));
+        if (http &&
+            esp_http_client_set_header(http, "Authorization", "Bearer " CONFIG_MUSE_FISH_TTS_TOKEN) == ESP_OK &&
+            esp_http_client_set_header(http, "Content-Type", "application/json") == ESP_OK &&
+            esp_http_client_set_header(http, "User-Agent", "MuseStopWatch/1.0") == ESP_OK &&
+            esp_http_client_open(http, len) == ESP_OK &&
+            esp_http_client_write(http, body, len) == len &&
+            esp_http_client_fetch_headers(http) >= 0) {
+            status = esp_http_client_get_status_code(http);
+            // Keep body reads short so the chat task can still poll Muse and handle commands.
+            ok = status == 200 && esp_http_client_set_timeout_ms(http, 100) == ESP_OK;
+        }
+    }
+    cJSON_free(body);
+    if (!ok) {
+        ESP_LOGW(TAG, "speech request failed (HTTP %d)", status);
+        fish_close();
+        return false;
+    }
+
+    s_turn.mp3_len = 0;
+    s_turn.mp3_ended = false;
+    s_turn.kbps = 0;
+    s_turn.down_rate = 0;
+    mp3dec_init(&s_turn.dec);
+    s_turn.fish_last_read_us = now_us();
+    return true;
+}
+#endif
+
 static void start_tts(void)
 {
     if (s_turn.tts_msg >= 0) {
@@ -2142,32 +2250,16 @@ static void start_tts(void)
         if (m.tts != TTS_QUEUED) {
             continue;
         }
-        /*
-         * Replies are text, shown at reading pace: silence in place of speech
-         * paces the captions and ends the turn. To speak them instead, send
-         * the message's text (s_turn.texts + i * TEXT_MAX, if texts was
-         * allocated; up to TEXT_MAX - 1 bytes) to a TTS API of your choice and
-         * play the MP3 it returns. In place of the silence below: keep
-         * m.tts = TTS_ACTIVE and s_turn.tts_msg = i, set s_turn.silent = false,
-         * m.pcm_start = s_turn.pcm_out, m.pcm_frames = 0, s_turn.mp3_len = 0,
-         * s_turn.mp3_ended = false, s_turn.kbps = 0, s_turn.down_rate = 0 and
-         * mp3dec_init(&s_turn.dec). Then, on this task, pass the MP3 to
-         * tts_data() as it arrives (it buffers up to MP3_BUF and drops the
-         * rest, so hold off while it's full) and set s_turn.mp3_ended at the
-         * end. decode() plays it at the speaker's volume, captions following,
-         * and finishes the message once it's drained.
-         */
-        m.pcm_start = s_turn.pcm_out;
-        /* Paced to the text kept: a reply longer than CAPTION_TEXT shows what
-         * was kept at reading pace, not stretched over the whole reply's time
-         * (the Watcher keeps the rest for review). */
-        size_t shown = s_turn.texts ? CAPTION_LEN(s_turn.texts + i * TEXT_MAX) : m.len;
-        m.pcm_frames = (uint32_t)(shown * MIC_RATE / TEXT_CHARS_PER_S);
+        caption_pacing(m);
         m.tts = TTS_ACTIVE;
         s_turn.tts_msg = i;
         s_turn.silent = true;
         ESP_LOGI(TAG, "showing message %s (%u chars)", m.id, (unsigned)m.len);
         show_reply_start(m);
+#if CONFIG_MUSE_FISH_TTS
+        const char *text = s_turn.texts ? s_turn.texts + i * TEXT_MAX : nullptr;
+        s_turn.silent = !fish_open(text);
+#endif
         return;
     }
 }
@@ -2182,6 +2274,39 @@ static void tts_data(const uint8_t *data, size_t len)
     memcpy(s_turn.mp3 + s_turn.mp3_len, data, len);
     s_turn.mp3_len += len;
 }
+
+#if CONFIG_MUSE_FISH_TTS
+static void fish_read(void)
+{
+    esp_http_client_handle_t http = s_turn.fish_http;
+    // Let decode() make room. Leaving data in TCP applies backpressure.
+    if (!http || MP3_BUF - s_turn.mp3_len < FISH_CHUNK) {
+        return;
+    }
+    int count = esp_http_client_read(http, s_turn.fish_chunk, FISH_CHUNK);
+    if (count > 0) {
+        tts_data(reinterpret_cast<const uint8_t *>(s_turn.fish_chunk), count);
+        s_turn.fish_last_read_us = now_us();
+        return;
+    }
+    if (count == -ESP_ERR_HTTP_EAGAIN && now_us() - s_turn.fish_last_read_us < FISH_IDLE_US) {
+        return;
+    }
+
+    bool complete = count == 0 && esp_http_client_is_complete_data_received(http);
+    fish_close();
+    if (complete && (s_turn.mp3_len || s_turn.kbps)) {
+        s_turn.mp3_ended = true;
+        return;
+    }
+    ESP_LOGW(TAG, "speech body missing or interrupted");
+    s_turn.mp3_len = 0;
+    s_turn.silent = true;
+    msg_t &m = s_turn.msgs[s_turn.tts_msg];
+    caption_pacing(m);
+    show_reply_start(m);
+}
+#endif
 
 static void tts_end(stream_t *s, bool ok)
 {
@@ -2538,7 +2663,11 @@ static bool poll_socket(void)
     static HeaderView hdrs[16];
     for (int budget = 0; budget < 8; budget++) {
         /* Hold off while the MP3 buffer is nearly full: TCP pushes back on the VM. */
-        if (s_turn.tts_msg >= 0 && MP3_BUF - s_turn.mp3_len < MP3_POLL_ROOM) {
+        if (s_turn.tts_msg >= 0 && MP3_BUF - s_turn.mp3_len < MP3_POLL_ROOM
+#if CONFIG_MUSE_FISH_TTS
+            && !s_turn.fish_http
+#endif
+        ) {
             return true;
         }
 #if CONFIG_MUSE_REALTIME_VOICE
@@ -2789,6 +2918,9 @@ static void hatch_task(void *arg)
         }
         if (s_turn.phase == P_WAIT_REPLY) {
             start_tts();
+#if CONFIG_MUSE_FISH_TTS
+            fish_read();
+#endif
             decode();
         }
         if (!s_connected) {

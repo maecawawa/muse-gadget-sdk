@@ -149,6 +149,7 @@ if [ -n "${MUSE_POWER_TEST:-}" ]; then
     [ -f "devices/sdkconfig.muse-$power_profile-power-test" ] || { echo "no power-test overlay for $board" >&2; exit 2; }
     B=$B-power-test; defaults="$defaults;devices/sdkconfig.muse-$power_profile-power-test"
 fi
+[ -f sdkconfig.local ] && defaults="$defaults;sdkconfig.local"
 log=/tmp/muse_build_$board.log
 # ESP-Mosaico: its Vibe Mode firmware installs an ESP-Iris System Update
 # bundle (the app and its partition table; never the bootloader or the

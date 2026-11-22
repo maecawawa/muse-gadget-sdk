@@ -14,6 +14,23 @@
 
 menu "Muse"
 
+    config MUSE_FISH_TTS
+        bool "Speak replies through a Fish Audio Worker"
+        depends on MUSE_ENABLED && MUSE_HATCH
+        # ESP-IDF logs outgoing HTTP headers at DEBUG.
+        depends on LOG_MAXIMUM_LEVEL < 4
+        default n
+
+    config MUSE_FISH_TTS_URL
+        string "Fish Audio Worker HTTPS URL"
+        depends on MUSE_FISH_TTS
+        default ""
+
+    config MUSE_FISH_TTS_TOKEN
+        string "Fish Audio Worker device token"
+        depends on MUSE_FISH_TTS
+        default ""
+
     config MUSE_UI_THEME
         bool "Light and dark appearance"
         depends on MUSE_ENABLED && !MUSE_UI_FREEINK
