@@ -102,6 +102,9 @@ static bool s_proxy_saving;
 static lv_obj_t *s_appearance,*s_appearance_mode,*s_home_appearance,*s_appearance_status;
 #endif
 static lv_obj_t *s_home, *s_wifi, *s_hatch, *s_ble, *s_sound, *s_sleep, *s_battery, *s_power, *s_text;
+#if MUSE_B_LIGHT
+static lv_obj_t *s_screen;
+#endif
 #if CONFIG_MUSE_AVATAR_SYNC
 static lv_obj_t *s_avatar, *s_avatar_source, *s_avatar_status, *s_home_avatar, *s_avatar_refresh;
 #endif
@@ -118,6 +121,9 @@ typedef struct {
 
 /* Home values. */
 static lv_obj_t *s_home_wifi, *s_home_hatch, *s_home_ble, *s_home_sound, *s_home_sleep, *s_home_battery, *s_about;
+#if MUSE_B_LIGHT
+static lv_obj_t *s_home_screen;
+#endif
 #if CONFIG_MUSE_VIDEO
 static lv_obj_t *s_home_camera;
 #endif
@@ -569,6 +575,9 @@ static lv_obj_t *info_row(lv_obj_t *list, const char *text)
 static void drop(lv_obj_t *p)
 {
     lv_obj_t **const pages[] = { &s_wifi, &s_hatch, &s_ble, &s_sound, &s_sleep, &s_battery, &s_power, &s_text, &s_proxy,
+#if MUSE_B_LIGHT
+        &s_screen,
+#endif
 #if CONFIG_MUSE_UI_THEME
         &s_appearance,
 #endif
@@ -1483,6 +1492,19 @@ static void text_size_row(lv_obj_t *list)
     set_text(s_text_val, TEXT_SIZE_NAMES[muse_settings_text_size()]);
 }
 
+#if MUSE_B_LIGHT
+static void build_screen_page(lv_obj_t *tile)
+{
+    lv_obj_t *list;
+    s_screen = page(tile, "SCREEN", true, &list);
+    if (!muse_board->epaper) {
+        s_bright_sl = slider(list, "Brightness", 10, 100, muse_settings_brightness(), &s_bright_val, on_bright);
+        set_val(s_bright_val, "%d%%", muse_settings_brightness());
+        text_size_row(list);
+    }
+}
+#endif
+
 static void build_sound_page(lv_obj_t *tile)
 {
     lv_obj_t *list;
@@ -1535,6 +1557,7 @@ static void build_sound_page(lv_obj_t *tile)
     note(list, "Holding the talk button also takes a photo, which goes to Muse with your voice note.");
 #endif
 
+#if !MUSE_B_LIGHT
     if (!muse_board->epaper) {
         s_bright_sl = slider(list, "Brightness", 10, 100, muse_settings_brightness(), &s_bright_val, on_bright);
         set_val(s_bright_val, "%d%%", muse_settings_brightness());
@@ -1542,6 +1565,7 @@ static void build_sound_page(lv_obj_t *tile)
     if (!muse_board->epaper) {
         text_size_row(list);
     }
+#endif
     if (s_vol_val) set_val(s_vol_val, "%d%%", muse_settings_volume());
     set_val(s_gain_val, "%d dB", muse_settings_mic_gain() / 3 * 3);
 }
@@ -1863,6 +1887,9 @@ static const page_t WIFI = { &s_wifi, build_wifi_page };
 static const page_t HATCH = { &s_hatch, build_hatch_page };
 static const page_t BLE = { &s_ble, build_ble_page };
 static const page_t SOUND = { &s_sound, build_sound_page };
+#if MUSE_B_LIGHT
+static const page_t SCREEN = { &s_screen, build_screen_page };
+#endif
 static const page_t SLEEP = { &s_sleep, build_sleep_page };
 static const page_t BATTERY = { &s_battery, build_battery_page };
 static const page_t POWER = { &s_power, build_power_page };
@@ -1913,6 +1940,9 @@ static void build_home(lv_obj_t *tile)
         row(list, LV_SYMBOL_IMAGE, "Screen", &s_home_sound, on_nav, (void *)&SOUND);
     } else {
         row(list, LV_SYMBOL_VOLUME_MAX, "Sound", &s_home_sound, on_nav, (void *)&SOUND);
+#if MUSE_B_LIGHT
+        row(list, LV_SYMBOL_IMAGE, "Screen", &s_home_screen, on_nav, (void *)&SCREEN);
+#endif
     }
     row(list, LV_SYMBOL_EYE_CLOSE, "Sleep", &s_home_sleep, on_nav, (void *)&SLEEP);
     row(list, LV_SYMBOL_BATTERY_FULL, "Battery", &s_home_battery, on_nav, (void *)&BATTERY);
@@ -1957,6 +1987,11 @@ static void tick_home(void)
     } else {
         set_text(s_home_sound, "Muted");
     }
+#if MUSE_B_LIGHT
+    if (s_home_screen) {
+        set_val(s_home_screen, "%d%%", muse_settings_brightness());
+    }
+#endif
     set_text(s_home_sleep, sleep_name(muse_settings_sleep_s()));
 
     muse_power_t p = muse_state_power();
