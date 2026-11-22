@@ -15,6 +15,7 @@
  */
 
 #include "muse_theme_lvgl.h"
+#include "muse_b_light.h"
 #include "muse_options_ui.h"
 #include "muse_options.h"
 #include "muse_state.h"
@@ -82,7 +83,7 @@ static lv_obj_t *label(lv_obj_t *parent, const char *text)
     lv_obj_set_width(obj, lv_pct(100));
     lv_label_set_long_mode(obj, LV_LABEL_LONG_MODE_WRAP);
     lv_obj_set_style_text_font(obj, s_font, 0);
-    muse_theme_set_style_text_color(obj, lv_color_hex(0xf0edf8), 0);
+    muse_theme_set_style_text_color(obj, lv_color_hex(MUSE_B_COLOR(MUSE_B_INK, 0xf0edf8)), 0);
     return obj;
 }
 
@@ -100,7 +101,13 @@ void muse_options_ui_start(int width, int height, bool round, const lv_font_t *f
     lv_obj_set_style_border_width(s_open, 0, 0);
     /* A percent-width child in a content-width button creates a sizing cycle
      * and collapses the control to a small blank square on the device. */
+#if MUSE_B_LIGHT
+    lv_obj_align(s_open, LV_ALIGN_TOP_MID, 0, 103);
+    muse_b_surface(s_open, MUSE_B_TINT, LV_RADIUS_CIRCLE, 14, 3);
+    lv_obj_t *open_label = label(s_open, muse_b_text("Options"));
+#else
     lv_obj_t *open_label = label(s_open, "Options");
+#endif
     lv_obj_set_width(open_label, LV_SIZE_CONTENT);
     lv_obj_add_flag(s_open, LV_OBJ_FLAG_HIDDEN);
 
@@ -129,9 +136,9 @@ void muse_options_ui_start(int width, int height, bool round, const lv_font_t *f
     }
     lv_obj_set_size(s_panel, panel_w, panel_h);
     lv_obj_center(s_panel);
-    muse_theme_set_style_bg_color(s_panel, lv_color_hex(0x1a1530), 0);
+    muse_theme_set_style_bg_color(s_panel, lv_color_hex(MUSE_B_COLOR(MUSE_B_CARD, 0x1a1530)), 0);
     lv_obj_set_style_border_width(s_panel, 1, 0);
-    muse_theme_set_style_border_color(s_panel, lv_color_hex(0x8c6ed4), 0);
+    muse_theme_set_style_border_color(s_panel, lv_color_hex(MUSE_B_COLOR(MUSE_B_TRACK, 0x8c6ed4)), 0);
     lv_obj_set_style_radius(s_panel, 18, 0);
     lv_obj_set_style_shadow_width(s_panel, 0, 0);
     lv_obj_set_style_outline_width(s_panel, 0, 0);
@@ -156,14 +163,18 @@ void muse_options_ui_tick(bool available)
         s_seen_revision = s_view->revision;
         lv_obj_clean(s_panel);
         if (have) {
-            lv_obj_t *question = label(s_panel, s_view->question[0] ? s_view->question : "Choose an option");
+            const char *prompt = "Choose an option";
+#if MUSE_B_LIGHT
+            prompt = muse_b_text(prompt);
+#endif
+            lv_obj_t *question = label(s_panel, s_view->question[0] ? s_view->question : prompt);
             lv_obj_set_style_text_line_space(question, 4, 0);
             for (int i = 0; i < s_view->count; ++i) {
                 lv_obj_t *button = lv_button_create(s_panel);
                 lv_obj_set_width(button, lv_pct(100));
                 lv_obj_set_height(button, LV_SIZE_CONTENT);
                 lv_obj_set_style_min_height(button, 44, 0);
-                muse_theme_set_style_bg_color(button, lv_color_hex(i == s_view->selected ? 0x67508e : 0x302642), 0);
+                muse_theme_set_style_bg_color(button, lv_color_hex(i == s_view->selected ? MUSE_B_COLOR(MUSE_B_TINT, 0x67508e) : MUSE_B_COLOR(MUSE_B_GROUND, 0x302642)), 0);
                 label(button, s_view->labels[i]);
                 lv_obj_add_event_cb(button, select_option, LV_EVENT_ALL, (void *)(intptr_t)i);
                 if (s_view->status != MUSE_OPTIONS_READY) lv_obj_add_state(button, LV_STATE_DISABLED);
@@ -173,6 +184,9 @@ void muse_options_ui_tick(bool available)
                 status = s_view->status == MUSE_OPTIONS_SELECTED ? "Answer selected"
                          : s_view->status == MUSE_OPTIONS_QUEUED || s_view->status == MUSE_OPTIONS_SENDING ? "Sending answer..."
                          : s_view->status == MUSE_OPTIONS_READY ? "" : "Continue in the Muse app";
+#if MUSE_B_LIGHT
+                status = muse_b_text(status);
+#endif
             }
             if (status[0]) label(s_panel, status);
             lv_obj_scroll_to_y(s_panel, 0, LV_ANIM_OFF);

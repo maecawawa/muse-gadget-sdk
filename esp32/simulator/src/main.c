@@ -33,6 +33,10 @@
 
 #include "muse_state.h"
 #include "muse_ui.h"
+#if CONFIG_MUSE_UI_B_LIGHT
+#include "muse_review.h"
+#include "muse_settings_ui.h"
+#endif
 #include "muse_options.h"
 #include "sim_board.h"
 #include "sim_platform.h"
@@ -347,6 +351,37 @@ static bool apply_setting(const char *key, const char *value, bool real_time)
     if (!strcmp(key, "face")) {
         return set_face(value);
     }
+#if CONFIG_MUSE_UI_B_LIGHT
+    if (!strcmp(key, "settings")) {
+        if (parse_bool(value, &flag)) {
+            muse_ui_bench_page(flag);
+            return true;
+        }
+        if (!muse_settings_ui_bench_open(value)) return false;
+        muse_ui_bench_page(true);
+        return true;
+    }
+    if (!strcmp(key, "review")) {
+        muse_review_store(muse_review_turn(), value);
+        return muse_review_step(1);
+    }
+    if (!strcmp(key, "volume_swipe") && parse_long(value, -140, 140, &number)) {
+        /* Feed the desktop pointer driver the same press and move as a drag. */
+        SDL_Window *window = SDL_RenderGetWindow(lv_sdl_window_get_renderer(sim_board_display()));
+        Uint32 id = SDL_GetWindowID(window);
+        SDL_Event event = { .button = { .type = SDL_MOUSEBUTTONDOWN, .windowID = id,
+                                       .button = SDL_BUTTON_LEFT, .x = 220, .y = 233 } };
+        if (SDL_PushEvent(&event) != 1) return false;
+        render_for(50, real_time);
+        event = (SDL_Event){ .motion = { .type = SDL_MOUSEMOTION, .windowID = id,
+                                        .state = SDL_BUTTON_LMASK, .x = 220, .y = 233 - (int)number } };
+        if (SDL_PushEvent(&event) != 1) return false;
+        render_for(50, real_time);
+        event = (SDL_Event){ .button = { .type = SDL_MOUSEBUTTONUP, .windowID = id,
+                                       .button = SDL_BUTTON_LEFT, .x = 220, .y = 233 - (int)number } };
+        return SDL_PushEvent(&event) == 1;
+    }
+#endif
     if (!strcmp(key, "caption")) {
         muse_state_set_caption("%s", value);
         return true;
@@ -581,6 +616,9 @@ int main(int argc, char **argv)
     sim_services_reset();
     lv_init();
     muse_state_init();
+#if CONFIG_MUSE_UI_B_LIGHT
+    if (muse_review_init() != ESP_OK) return 1;
+#endif
     muse_state_set_power(&s_power);
     muse_board = sim_board_get();
     int pre_w = 0, pre_h = 0;

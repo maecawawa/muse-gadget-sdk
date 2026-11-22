@@ -36,6 +36,7 @@ option(MUSE_SIM_FETCH_DEPS
        ON)
 option(MUSE_SIM_SANITIZERS "Build the simulator with AddressSanitizer and UndefinedBehaviorSanitizer" OFF)
 option(MUSE_SIM_WARNINGS_AS_ERRORS "Treat simulator warnings as errors" OFF)
+option(MUSE_SIM_STOPWATCH_B_LIGHT "Preview the 466 px StopWatch with Concept B" OFF)
 option(MUSE_SIM_EMOJI "Show emoji in captions, as CONFIG_MUSE_EMOJI does" OFF)
 
 set(MUSE_SIM_LVGL_VERSION "9.5.0")
@@ -172,8 +173,29 @@ add_executable(muse_simulator
     "${MUSE_COMPONENT_DIR}/muse_state.c"
     "${MUSE_COMPONENT_DIR}/muse_text.c"
     "${MUSE_COMPONENT_DIR}/muse_lang.c"
-    "${MUSE_SIM_AVATAR_SOURCE}"
 )
+if(NOT MUSE_SIM_STOPWATCH_B_LIGHT)
+    target_sources(muse_simulator PRIVATE "${MUSE_SIM_AVATAR_SOURCE}")
+endif()
+
+if(MUSE_SIM_STOPWATCH_B_LIGHT)
+    enable_language(ASM)
+    set(MUSE_SIM_B_PORTRAITS "${MUSE_COMPONENT_DIR}/avatar_bitmaps/muse_b_portraits.rgb565")
+    configure_file(portraits.S.in portraits.S @ONLY)
+    set_source_files_properties("${CMAKE_CURRENT_BINARY_DIR}/portraits.S" PROPERTIES
+        OBJECT_DEPENDS "${MUSE_SIM_B_PORTRAITS}")
+    target_sources(muse_simulator PRIVATE "${CMAKE_CURRENT_BINARY_DIR}/portraits.S"
+        src/sim_settings.c
+        "${MUSE_COMPONENT_DIR}/muse_chat_text.c"
+        "${MUSE_COMPONENT_DIR}/muse_review.c"
+        "${MUSE_COMPONENT_DIR}/muse_settings_ui.c"
+        "${MUSE_COMPONENT_DIR}/muse_keypad.c"
+        "${MUSE_COMPONENT_DIR}/muse_b_light.c"
+        "${MUSE_COMPONENT_DIR}/fonts/muse_font_b_ja_16.c"
+        "${MUSE_COMPONENT_DIR}/fonts/muse_font_cjk_noto_16.c")
+    target_compile_definitions(muse_simulator PRIVATE _POSIX_C_SOURCE=200809L CONFIG_LV_USE_SNAPSHOT=1 CONFIG_MUSE_UI_B_LIGHT=1
+        CONFIG_MUSE_CJK_FONT=1 CONFIG_MUSE_CJK_FONT_NOTO=1)
+endif()
 
 target_include_directories(muse_simulator PRIVATE
     "${CMAKE_CURRENT_SOURCE_DIR}/compat"
@@ -181,6 +203,10 @@ target_include_directories(muse_simulator PRIVATE
     "${CMAKE_CURRENT_SOURCE_DIR}/src"
     "${MUSE_COMPONENT_DIR}"
 )
+
+if(MUSE_SIM_STOPWATCH_B_LIGHT)
+    target_include_directories(muse_simulator PRIVATE tests/settings_fakes ../tests/link_fakes)
+endif()
 
 target_link_libraries(muse_simulator PRIVATE
     ${MUSE_SIM_LVGL_TARGET}
@@ -220,7 +246,7 @@ if(MUSE_SIM_SANITIZERS)
 endif()
 
 include(CTest)
-if(BUILD_TESTING AND EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tests/test_simulator.py")
+if(BUILD_TESTING AND NOT MUSE_SIM_STOPWATCH_B_LIGHT AND EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tests/test_simulator.py")
     # Reuse the simulator adapters, but include the production UI directly so
     # the regression can check the rendered label's font and geometry.
     get_target_property(caption_sources muse_simulator SOURCES)

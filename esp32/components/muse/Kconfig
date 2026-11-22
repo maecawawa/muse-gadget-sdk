@@ -432,6 +432,15 @@ menu "Muse"
             high. devices/sdkconfig.muse-esp-mosaico-camera turns it on with
             the sensors' settings.
 
+    config MUSE_UI_B_LIGHT
+        bool "Concept B light UI for M5Stack StopWatch"
+        depends on MUSE_ENABLED && MUSE_BOARD_M5STACK_STOPWATCH
+        select MUSE_CJK_FONT
+        select MUSE_CJK_FONT_NOTO
+        default n
+        help
+            Use the Japanese light interface and eight flash-resident still portraits.
+
     config MUSE_CJK_FONT
         bool "Show Chinese, Japanese and Korean in captions"
         depends on MUSE_ENABLED

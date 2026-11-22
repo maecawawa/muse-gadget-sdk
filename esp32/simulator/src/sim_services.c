@@ -203,7 +203,7 @@ void muse_hatch_status(muse_hatch_status_t *out)
 }
 
 /* The latest-reply harness links the production text helpers. */
-#if !CONFIG_MUSE_LATEST_REPLY
+#if !CONFIG_MUSE_LATEST_REPLY && !CONFIG_MUSE_UI_B_LIGHT
 void muse_chat_set_caption_px(int width_px, int (*glyph_px)(uint32_t letter, uint32_t next))
 {
     (void)width_px;
@@ -216,6 +216,7 @@ muse_link_state_t muse_link_state(void)
     return s_link;
 }
 
+#if !CONFIG_MUSE_UI_B_LIGHT
 void muse_settings_ui_build(lv_obj_t *tile)
 {
     lv_obj_t *label = lv_label_create(tile);
@@ -233,6 +234,8 @@ bool muse_settings_ui_in_subpage(void)
 {
     return false;
 }
+
+#endif
 
 void muse_menu_key(muse_menu_key_t key)
 {

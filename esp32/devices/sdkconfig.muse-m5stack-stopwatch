@@ -80,3 +80,6 @@ CONFIG_PM_PROFILING=y
 #   the 16 KB of DMA-capable RAM Link waits for before it sends link.register.
 CONFIG_HOMEHUB_SETUP_TASKS_IN_PSRAM=y
 CONFIG_SPIRAM_MALLOC_ALWAYSINTERNAL=1024
+
+# Concept B light interface
+CONFIG_MUSE_UI_B_LIGHT=y

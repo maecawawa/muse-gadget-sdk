@@ -1,0 +1,12 @@
+#ifdef __APPLE__
+.section __TEXT,__const
+#else
+.section .rodata
+#endif
+.balign 16
+.global _binary_muse_b_portraits_rgb565_start
+_binary_muse_b_portraits_rgb565_start:
+.incbin "@MUSE_SIM_B_PORTRAITS@"
+#ifndef __APPLE__
+.section .note.GNU-stack,"",%progbits
+#endif

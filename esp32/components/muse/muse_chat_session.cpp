@@ -87,7 +87,7 @@ extern "C" {
 #if CONFIG_MUSE_REALTIME_VOICE
 #include "muse_voice_call_priv.h"
 #endif
-#if CONFIG_MUSE_BOARD_SENSECAP_WATCHER || CONFIG_MUSE_LATEST_REPLY
+#if CONFIG_MUSE_BOARD_SENSECAP_WATCHER || CONFIG_MUSE_LATEST_REPLY || CONFIG_MUSE_UI_B_LIGHT
 #include "muse_review.h"
 #endif
 #if CONFIG_MUSE_RESEND_NOTES
@@ -127,7 +127,7 @@ static const char *TAG = "muse_chat_session";
 static_assert(MP3_BUF > MP3_POLL_ROOM + MP3_HOLD, "reads would stall with the MP3 buffer empty");
 #define EV_TEXT 72
 #define CAPTION_TEXT 1024                  /* a message's text, for captions timed to its speech */
-#if CONFIG_MUSE_BOARD_SENSECAP_WATCHER || CONFIG_MUSE_LATEST_REPLY
+#if CONFIG_MUSE_BOARD_SENSECAP_WATCHER || CONFIG_MUSE_LATEST_REPLY || CONFIG_MUSE_UI_B_LIGHT
 #define TEXT_MAX (32 * 1024)               /* the whole reply, kept for later review, in PSRAM */
 #else
 #define TEXT_MAX CAPTION_TEXT
@@ -263,7 +263,7 @@ struct resampler_t {
 struct turn_t {
     phase_t phase;
     uint32_t gen;
-#if CONFIG_MUSE_BOARD_SENSECAP_WATCHER || CONFIG_MUSE_LATEST_REPLY
+#if CONFIG_MUSE_BOARD_SENSECAP_WATCHER || CONFIG_MUSE_LATEST_REPLY || CONFIG_MUSE_UI_B_LIGHT
     uint32_t review;         /* this turn's identity for reply review (typed turns all have gen 0) */
 #endif
     bool text;               /* typed at the console: the reply goes there, unspoken */
@@ -1184,7 +1184,7 @@ static bool turn_start(uint32_t gen, bool text)
     s_turn.note = note;
     s_turn.texts = texts;
     s_turn.gen = gen;
-#if CONFIG_MUSE_BOARD_SENSECAP_WATCHER || CONFIG_MUSE_LATEST_REPLY
+#if CONFIG_MUSE_BOARD_SENSECAP_WATCHER || CONFIG_MUSE_LATEST_REPLY || CONFIG_MUSE_UI_B_LIGHT
     s_turn.review = muse_review_turn();
 #endif
     s_turn.text = text;
@@ -1671,7 +1671,7 @@ static void message_done(int i, const char *final_text)
     }
     m.done = true;
     mark(M_DONE);
-#if CONFIG_MUSE_BOARD_SENSECAP_WATCHER || CONFIG_MUSE_LATEST_REPLY
+#if CONFIG_MUSE_BOARD_SENSECAP_WATCHER || CONFIG_MUSE_LATEST_REPLY || CONFIG_MUSE_UI_B_LIGHT
     /* Keep complete final text, rather than the 1 KB automatic-caption copy.
      * turn_detach()'s own "working on it" notice isn't an answer: keep the last one. */
     const char *review = final_text && final_text[0] ? final_text

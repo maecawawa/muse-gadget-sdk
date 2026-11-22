@@ -15,6 +15,7 @@
  */
 
 #include "muse_theme_lvgl.h"
+#include "muse_b_light.h"
 #include "muse_settings_ui.h"
 
 #include <stdio.h>
@@ -76,14 +77,14 @@
 #define TINY_BACK_Y 16
 #define MAX_APS 12
 
-#define COLOR_TEXT 0xf2efff
-#define COLOR_DIM 0x8b84a8
-#define COLOR_CARD 0x1a1530
-#define COLOR_CARD_PRESSED 0x2e2552
-#define COLOR_ACCENT 0xa77dff
-#define COLOR_OK 0x6ff0bf
-#define COLOR_WARN 0xffb45c
-#define COLOR_DANGER 0xff5c5c
+#define COLOR_TEXT MUSE_B_COLOR(MUSE_B_INK, 0xf2efff)
+#define COLOR_DIM MUSE_B_COLOR(MUSE_B_DIM, 0x8b84a8)
+#define COLOR_CARD MUSE_B_COLOR(MUSE_B_CARD, 0x1a1530)
+#define COLOR_CARD_PRESSED MUSE_B_COLOR(MUSE_B_TINT, 0x2e2552)
+#define COLOR_ACCENT MUSE_B_COLOR(MUSE_B_BLUE, 0xa77dff)
+#define COLOR_OK MUSE_B_COLOR(MUSE_B_BLUE, 0x6ff0bf)
+#define COLOR_WARN MUSE_B_COLOR(MUSE_B_AMBER, 0xffb45c)
+#define COLOR_DANGER MUSE_B_COLOR(MUSE_B_RED, 0xff5c5c)
 
 typedef void (*text_done_cb_t)(const char *text);
 
@@ -174,7 +175,9 @@ static lv_obj_t *s_text_back;
 
 /* Screen text in Brazilian Portuguese (muse_lang.c); the other languages
  * keep these pages in English. */
-#if CONFIG_MUSE_UI_LANG_PT_BR
+#if MUSE_B_LIGHT
+#define T(en) muse_b_text(en)
+#elif CONFIG_MUSE_UI_LANG_PT_BR
 #define T(en) muse_lang_menu(en)
 #else
 #define T(en) (en)
@@ -190,6 +193,9 @@ static bool wide_layout(void)
 
 static const lv_font_t *settings_font(const lv_font_t *font)
 {
+#if MUSE_B_LIGHT
+    return muse_b_font(font == &lv_font_unscii_16 ? &lv_font_montserrat_20 : font);
+#endif
 #if CONFIG_MUSE_UI_LANG_PT_BR
     /* unscii has no accented letters: Montserrat 16 with the Portuguese ones. */
     if (font == &lv_font_unscii_16) {
@@ -248,7 +254,7 @@ static lv_obj_t *label(lv_obj_t *parent, const lv_font_t *font, uint32_t color, 
     lv_obj_set_style_text_font(l, settings_font(font), 0);
     muse_theme_set_style_text_color(l, lv_color_hex(color), 0);
     text = T(text);
-    lv_label_set_text(l, muse_lang_showable(text) ? text : muse_text_showable(text, shown, sizeof(shown)));
+    lv_label_set_text(l, (MUSE_B_LIGHT || muse_lang_showable(text)) ? text : muse_text_showable(text, shown, sizeof(shown)));
     return l;
 }
 
@@ -256,7 +262,7 @@ static void set_text(lv_obj_t *l, const char *text)
 {
     char shown[SHOWN_MAX];
     text = T(text);
-    if (!muse_lang_showable(text)) {
+    if (!MUSE_B_LIGHT && !muse_lang_showable(text)) {
         text = muse_text_showable(text, shown, sizeof(shown));
     }
     if (strcmp(lv_label_get_text(l), text) != 0) {
@@ -328,7 +334,7 @@ static lv_obj_t *page(lv_obj_t *tile, const char *title, bool back, lv_obj_t **l
      * large panels get bigger ones. */
     const bool wide = wide_layout();
     const bool compact = !muse_board->round && (muse_board->height <= 240 || muse_board->width < LIST_W);
-    const int list_top = wide ? 96 : compact ? (back ? 48 : 36) : s_tiny ? TINY_LIST_TOP : LIST_TOP;
+    const int list_top = MUSE_B_LIGHT ? 90 : wide ? 96 : compact ? (back ? 48 : 36) : s_tiny ? TINY_LIST_TOP : LIST_TOP;
     lv_obj_t *p = lv_obj_create(tile);
     lv_obj_remove_style_all(p);
     lv_obj_set_size(p, lv_pct(100), lv_pct(100));
@@ -338,7 +344,10 @@ static lv_obj_t *page(lv_obj_t *tile, const char *title, bool back, lv_obj_t **l
 
     lv_obj_t *t = label(p, wide ? &lv_font_montserrat_28 :
                         compact || s_tiny ? &lv_font_montserrat_16 : &lv_font_unscii_16, COLOR_ACCENT, title);
-    lv_obj_set_style_text_letter_space(t, wide ? 1 : compact ? 0 : s_tiny ? 1 : 2, 0);
+    lv_obj_set_style_text_letter_space(t, MUSE_B_LIGHT ? 0 : wide ? 1 : compact ? 0 : s_tiny ? 1 : 2, 0);
+#if MUSE_B_LIGHT
+    muse_b_surface(t, MUSE_B_TINT, LV_RADIUS_CIRCLE, 16, 4);
+#endif
     lv_obj_align(t, LV_ALIGN_TOP_MID, 0, wide ? 24 : compact ? (back ? 12 : 8) : s_tiny ? 18 : 44);
     if (narrow_panel() && back) {
         single_line(t, muse_board->width - 56);
@@ -363,14 +372,14 @@ static lv_obj_t *page(lv_obj_t *tile, const char *title, bool back, lv_obj_t **l
     lv_obj_t *list = lv_obj_create(p);
     lv_obj_remove_style_all(list);
     /* Keep the scrolling viewport above the tile's fixed page indicators. */
-    lv_obj_set_size(list, wide ? muse_board->width - 96 : compact ? muse_board->width - 16 : s_tiny ? TINY_LIST_W : LIST_W,
-                    muse_board->height - list_top - (narrow_panel() ? 24 : 0));
+    lv_obj_set_size(list, wide ? muse_board->width - 96 : compact ? muse_board->width - 16 : s_tiny ? TINY_LIST_W : MUSE_B_LIGHT ? 320 : LIST_W,
+                    muse_board->height - list_top - (MUSE_B_LIGHT ? 80 : narrow_panel() ? 24 : 0));
     lv_obj_align(list, LV_ALIGN_TOP_MID, 0, list_top);
     lv_obj_set_flex_flow(list, LV_FLEX_FLOW_COLUMN);
     lv_obj_set_flex_align(list, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
-    lv_obj_set_style_pad_row(list, wide ? 16 : narrow_panel() || s_tiny ? 6 : 10, 0);
+    lv_obj_set_style_pad_row(list, wide ? 16 : MUSE_B_LIGHT || narrow_panel() || s_tiny ? 6 : 10, 0);
     /* Clear the page dots on flat panels, or the bottom curve on round ones. */
-    lv_obj_set_style_pad_bottom(list, wide ? 16 : narrow_panel() ? 12 : (compact ? 32 : s_tiny ? 64 : 110), 0);
+    lv_obj_set_style_pad_bottom(list, wide ? 16 : MUSE_B_LIGHT ? 4 : narrow_panel() ? 12 : (compact ? 32 : s_tiny ? 64 : 110), 0);
     lv_obj_set_scroll_dir(list, LV_DIR_VER);
     lv_obj_set_scrollbar_mode(list, LV_SCROLLBAR_MODE_OFF);
     *list_out = list;
@@ -381,7 +390,7 @@ static lv_obj_t *card(lv_obj_t *list, bool clickable)
 {
     lv_obj_t *c = clickable ? lv_button_create(list) : lv_obj_create(list);
     lv_obj_remove_style_all(c);
-    lv_obj_set_size(c, lv_pct(100), wide_layout() ? 84 : s_tiny ? TINY_ROW_H : ROW_H);
+    lv_obj_set_size(c, lv_pct(100), wide_layout() ? 84 : s_tiny ? TINY_ROW_H : MUSE_B_LIGHT ? 33 : ROW_H);
     lv_obj_set_style_radius(c, s_tiny ? 12 : 18, 0);
     lv_obj_set_style_bg_opa(c, LV_OPA_COVER, 0);
     muse_theme_set_style_bg_color(c, lv_color_hex(COLOR_CARD), 0);
@@ -425,16 +434,19 @@ static lv_obj_t *row(lv_obj_t *list, const char *icon, const char *text, lv_obj_
     if (icon) {
         label(c, &lv_font_montserrat_20, COLOR_ACCENT, icon);
     }
-    lv_obj_t *t = label(c, &lv_font_montserrat_20, COLOR_TEXT, text);
+    lv_obj_t *t = label(c, MUSE_B_LIGHT ? &lv_font_montserrat_16 : &lv_font_montserrat_20,
+                        MUSE_B_LIGHT && !strcmp(text, "Power off") ? COLOR_DANGER : COLOR_TEXT, text);
     lv_obj_set_flex_grow(t, 1);
     lv_label_set_long_mode(t, LV_LABEL_LONG_MODE_DOTS);
     if (value_out) {
         lv_obj_t *v = label(c, &lv_font_montserrat_16, COLOR_DIM, "");
         lv_obj_set_style_max_width(v, 130, 0);
+        if (MUSE_B_LIGHT) lv_obj_set_style_text_align(v, LV_TEXT_ALIGN_RIGHT, 0);
         lv_label_set_long_mode(v, LV_LABEL_LONG_MODE_DOTS);
         *value_out = v;
     }
     if (cb) {
+        if (MUSE_B_LIGHT) label(c, &lv_font_montserrat_14, COLOR_ACCENT, LV_SYMBOL_RIGHT);
         lv_obj_add_event_cb(c, cb, LV_EVENT_CLICKED, user);
     }
     return c;
@@ -451,7 +463,7 @@ static lv_obj_t *switch_row(lv_obj_t *list, const char *text, bool on, lv_event_
     }
     lv_obj_t *sw = lv_switch_create(c);
     lv_obj_set_size(sw, wide_layout() ? 76 : stacked_rows() ? 44 : 60, wide_layout() ? 42 : s_tiny ? 24 : 32);
-    muse_theme_set_style_bg_color(sw, lv_color_hex(0x3a3358), LV_PART_MAIN);
+    muse_theme_set_style_bg_color(sw, lv_color_hex(MUSE_B_COLOR(MUSE_B_TRACK, 0x3a3358)), LV_PART_MAIN);
     muse_theme_set_style_bg_color(sw, lv_color_hex(COLOR_ACCENT), LV_PART_INDICATOR | LV_STATE_CHECKED);
     if (on) {
         lv_obj_add_state(sw, LV_STATE_CHECKED);
@@ -501,7 +513,10 @@ static lv_obj_t *slider(lv_obj_t *list, const char *text, int lo, int hi, int va
     lv_slider_set_value(s, value, LV_ANIM_OFF);
     muse_theme_set_style_bg_color(s, lv_color_hex(0x2a2345), LV_PART_MAIN);
     muse_theme_set_style_bg_color(s, lv_color_hex(COLOR_ACCENT), LV_PART_INDICATOR);
-    muse_theme_set_style_bg_color(s, lv_color_hex(COLOR_TEXT), LV_PART_KNOB);
+    muse_theme_set_style_bg_color(s, lv_color_hex(MUSE_B_COLOR(MUSE_B_BLUE, COLOR_TEXT)), LV_PART_KNOB);
+    if (MUSE_B_LIGHT) {
+        muse_theme_set_style_bg_color(s, lv_color_hex(MUSE_B_COLOR(MUSE_B_TRACK, COLOR_CARD)), LV_PART_MAIN);
+    }
     lv_obj_set_style_pad_all(s, 6, LV_PART_KNOB);
     lv_obj_set_ext_click_area(s, 16);
     lv_obj_add_event_cb(s, cb, LV_EVENT_VALUE_CHANGED, NULL);
@@ -1009,7 +1024,7 @@ static void tick_proxy(void) {
     set_text(s_proxy_host, s_proxy_edit.host);
     set_text(s_proxy_port, s_proxy_edit.port ? port : "");
     set_text(s_proxy_user, s_proxy_edit.username);
-    set_text(s_proxy_pass, s_proxy_edit.password[0] ? "********" : "");
+    set_text(s_proxy_pass, s_proxy_edit.password[0] ? (MUSE_B_LIGHT ? "••••" : "********") : "");
     if (s_proxy_saving) {
         network_proxy_config_t check;
         int state = muse_link_wifi_proxy_get(s_proxy_ssid, &check);
@@ -1302,6 +1317,9 @@ static void tick_hatch(void)
     set_text(s_hatch_vm, vm[0] ? vm : h.vm_id[0] ? h.vm_id : "Not set");
     /* The device token is a credential, so none of it shows. Pairing stores one
      * (muse_link_hatch_linked); one typed in here overrides it. */
+#if MUSE_B_LIGHT
+    set_text(s_hatch_token, muse_settings_hatch_token_len() || muse_link_hatch_linked() ? "••••" : "Not set");
+#else
     set_text(s_hatch_token, muse_settings_hatch_token_len() ? "Set here" :
                             muse_link_hatch_linked() ? "Set" : "Not set");
     /* The hint gadgets.muse.ai shows. */
@@ -1309,11 +1327,16 @@ static void tick_hatch(void)
     if (sdk) {
         snprintf(buf, sizeof(buf), "%.12s...", sdk);
     }
+#endif
     if (s_sdk_token_bad_us && esp_timer_get_time() - s_sdk_token_bad_us < 5000000) {
         set_text(s_hatch_sdk_token, "Not a token");
     } else {
         s_sdk_token_bad_us = 0;
+#if MUSE_B_LIGHT
+        set_text(s_hatch_sdk_token, muse_link_sdk_token() ? "••••" : "Not set");
+#else
         set_text(s_hatch_sdk_token, sdk ? buf : "Not set");
+#endif
     }
 }
 
@@ -1761,10 +1784,15 @@ static void build_power_page(lv_obj_t *tile)
     lv_obj_t *list;
     s_power = page(tile, "POWER", true, &list);
     note(list, "Power Muse off completely?");
-    button(list, LV_SYMBOL_POWER "  Power off", COLOR_DANGER, on_power_off, NULL);
+    lv_obj_t *off = button(list, LV_SYMBOL_POWER "  Power off", COLOR_DANGER, on_power_off, NULL);
+    if (MUSE_B_LIGHT) {
+        muse_theme_set_style_bg_color(off, lv_color_hex(COLOR_DANGER), 0);
+        muse_theme_set_style_bg_color(off, lv_color_hex(COLOR_DANGER), LV_STATE_PRESSED);
+        lv_obj_set_style_text_color(lv_obj_get_child(off, 0), lv_color_white(), 0);
+    }
     button(list, LV_SYMBOL_REFRESH "  Restart", COLOR_TEXT, on_restart, NULL);
     button(list, "Cancel", COLOR_TEXT, on_back, NULL);
-    char text[128];
+    char text[MUSE_B_LIGHT ? 256 : 128];
     const char *power = muse_board->power_button ? muse_board->power_button : muse_board->talk_button;
     const char *sleep = muse_board->power_button ? muse_board->power_button : muse_board->aux_button;
     if (power && !strcmp(power, "screen")) {
@@ -1772,7 +1800,11 @@ static void build_power_page(lv_obj_t *tile)
         snprintf(text, sizeof(text), "%s", T("Tap the screen to turn it back on."));
     } else if (sleep) {
         snprintf(text, sizeof(text), T("Press the %s button to turn it back on. To just turn the screen off, press the %s button."),
+#if MUSE_B_LIGHT
+                 T(power), T(sleep));
+#else
                  power, sleep);
+#endif
     } else {
         /* No button turns the screen off (the 1.85C's BOOT talks). */
         snprintf(text, sizeof(text), T("Press the %s button to turn it back on."), power);
@@ -1921,7 +1953,7 @@ static void tick_home(void)
     } else if (!muse_board->audio_init) {
         set_text(s_home_sound, muse_board->mic_init ? "Mic only" : "No audio");
     } else if (muse_settings_speaker_on()) {
-        set_val(s_home_sound, "Vol %d%%", muse_settings_volume());
+        set_val(s_home_sound, MUSE_B_LIGHT ? "音量 %d%%" : "Vol %d%%", muse_settings_volume());
     } else {
         set_text(s_home_sound, "Muted");
     }

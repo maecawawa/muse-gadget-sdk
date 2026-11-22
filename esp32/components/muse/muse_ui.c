@@ -45,6 +45,15 @@
 #include "muse_chat.h"
 #include "muse_console.h"
 #include "muse_lang.h"
+#include "muse_b_light.h"
+
+#if MUSE_B_LIGHT
+#define UI_STATUS(text) muse_b_text(text)
+#define UI_MENU(text) muse_b_text(text)
+#else
+#define UI_STATUS(text) muse_lang_status(text)
+#define UI_MENU(text) muse_lang_menu(text)
+#endif
 #include "muse_link.h"
 #include "muse_mem.h"
 #include "muse_menu.h"
@@ -72,7 +81,7 @@
 #if CONFIG_MUSE_VIDEO
 #include "muse_video.h"
 #endif
-#if CONFIG_MUSE_BOARD_SENSECAP_WATCHER
+#if CONFIG_MUSE_BOARD_SENSECAP_WATCHER || MUSE_B_LIGHT
 #include "muse_review.h"
 #endif
 #if CONFIG_MUSE_APP_VIEW
@@ -89,7 +98,7 @@ static const char *TAG = "muse_ui";
 #define METER_GAP_PX 4
 #define RING_RANGE 1000
 #define CAPTION_W 256           /* 16 columns of unscii_16, the width reply captions wrap to */
-#define CAPTION_LINE_SPACE 2
+#define CAPTION_LINE_SPACE (MUSE_B_LIGHT ? 4 : 2)
 #define LATIN_BAND_MARGIN 26    /* a small screen's accented captions clear its button icons */
 #define LONG_MUSE_TOP 44        /* long layout: Muse's top, under the state and name rows, while a reply shows */
 #define LONG_HINTS_H 135        /* long layout: the bottom strip, for the key hints, speaker and page dots */
@@ -103,13 +112,13 @@ static const char *TAG = "muse_ui";
 #define VOLUME_HINT_HOLD_MS 450
 #define VOLUME_HINT_FADE_MS 250
 
-#define COLOR_DIM 0x8b84a8
-#define COLOR_CAPTION 0xd8d2ff
-#define COLOR_RING_BG 0x140f22
-#define COLOR_METER_OFF 0x1d1733
-#define COLOR_ACCENT 0xa77dff
-#define COLOR_DOT_OFF 0x3a3358
-#define COLOR_LIT 0xf2efff
+#define COLOR_DIM MUSE_B_COLOR(MUSE_B_DIM, 0x8b84a8)
+#define COLOR_CAPTION MUSE_B_COLOR(MUSE_B_INK, 0xd8d2ff)
+#define COLOR_RING_BG MUSE_B_COLOR(MUSE_B_TRACK, 0x140f22)
+#define COLOR_METER_OFF MUSE_B_COLOR(MUSE_B_TRACK, 0x1d1733)
+#define COLOR_ACCENT MUSE_B_COLOR(MUSE_B_BLUE, 0xa77dff)
+#define COLOR_DOT_OFF MUSE_B_COLOR(MUSE_B_DOT, 0x3a3358)
+#define COLOR_LIT MUSE_B_COLOR(MUSE_B_INK, 0xf2efff)
 #define SETTINGS_TICK_S 0.25f
 
 /* Text on 128 px screens, as in the button menu (muse_menu.c). */
@@ -208,6 +217,10 @@ static lv_obj_t *s_pair_hint;
 static lv_obj_t *s_canvas;
 static lv_obj_t *s_mic_icon;
 static lv_obj_t *s_ptt_hint, *s_spk_hint, *s_pwr_hint;
+#if MUSE_B_LIGHT
+static lv_obj_t *s_mic_ring;
+static lv_obj_t *s_review_open, *s_review_prev, *s_review_next;
+#endif
 #if LV_USE_SNAPSHOT
 static volatile bool s_bench_demo;
 void muse_ui_bench_demo(bool enabled)
@@ -230,7 +243,7 @@ static lv_obj_t *s_name_lbl;    /* this gadget's own name, to tell it from the n
 static lv_obj_t *s_power_lbl;
 static lv_obj_t *s_caption_lbl;
 static lv_obj_t *s_reply_lbl;   /* full layout: the reply's page while answering */
-#if CONFIG_MUSE_BOARD_SENSECAP_WATCHER
+#if CONFIG_MUSE_BOARD_SENSECAP_WATCHER || MUSE_B_LIGHT
 static lv_obj_t *s_review_position;
 #endif
 static lv_obj_t *s_meter[METER_SEGS];
@@ -272,7 +285,11 @@ static int s_preview_brightness = -1;
 static int s_shown_page = -1;
 static int s_shown_speaker = -1;
 static muse_mode_t s_last_mode = MUSE_MODE_COUNT;
+#if MUSE_B_LIGHT
+static muse_mode_t s_b_caption_mode = MUSE_MODE_COUNT;
+#else
 static muse_mode_t s_last_epaper_pose = MUSE_MODE_COUNT;
+#endif
 
 /*
  * While Muse is thinking or speaking it shrinks to make room for the reply:
@@ -297,9 +314,11 @@ static int s_page_for = -1;     /* the layout the reply's page is sized for */
 static int s_read_size = -1;    /* the Text size the read layout is built for */
 static int s_read_top, s_ring_in;   /* where a read page may start, and the ring's inner edge */
 static int s_big_y;             /* Muse's centre at full size */
-static int s_muse_y;            /* and now */
 static bool s_muse_up;          /* long layout: up out of the reply's way */
+#if !MUSE_B_LIGHT
+static int s_muse_y;            /* current animated centre */
 static int s_from_px, s_from_y, s_to_px, s_to_y;
+#endif
 
 static const char *const MODE_NAMES[MUSE_MODE_COUNT] = {
     [MUSE_MODE_BOOT] = "WAKING UP",
@@ -311,6 +330,7 @@ static const char *const MODE_NAMES[MUSE_MODE_COUNT] = {
     [MUSE_MODE_OFF] = "GOODBYE",
 };
 
+#if !MUSE_B_LIGHT
 /*
  * Muse reaches LVGL as an image whose pixels are made on demand: a decoder
  * scales the 64 px grid up one strip of rows at a time, so the full-size frame
@@ -543,6 +563,8 @@ static void invalidate_muse(void)
     }
 }
 
+#endif
+
 static lv_obj_t *make_label(lv_obj_t *parent, const lv_font_t *font, uint32_t color);
 
 /* A microphone from primitives: LVGL's symbol font has none. */
@@ -651,7 +673,7 @@ static void on_canvas_clicked(lv_event_t *e)
     (void)e;
     if (!s_volume_swipe.claimed) {
         muse_state_make_happy();
-#if CONFIG_MUSE_AVATAR_SYNC
+#if CONFIG_MUSE_AVATAR_SYNC && !MUSE_B_LIGHT
         s_avatar_reaction_start=(float)esp_timer_get_time()/1e6f;
 #endif
     }
@@ -700,6 +722,9 @@ static const lv_font_t *latin_caption_font(void)
  * cells wide. */
 static const lv_font_t *caption_font(void)
 {
+#if MUSE_B_LIGHT
+    return muse_b_font(&lv_font_montserrat_16);
+#else
 #if CONFIG_MUSE_CJK_FONT || CONFIG_MUSE_EMOJI
     static lv_font_t font;
     if (!font.get_glyph_dsc) {
@@ -724,6 +749,7 @@ static const lv_font_t *caption_font(void)
     return &font;
 #else
     return &lv_font_unscii_16;
+#endif
 #endif
 }
 
@@ -816,6 +842,9 @@ static void set_caption_font(const char *caption)
 static lv_obj_t *make_label(lv_obj_t *parent, const lv_font_t *font, uint32_t color)
 {
     lv_obj_t *l = lv_label_create(parent);
+#if MUSE_B_LIGHT
+    font = muse_b_font(font);
+#endif
     lv_obj_set_style_text_font(l, font, 0);
     muse_theme_set_style_text_color(l, lv_color_hex(color), 0);
     lv_obj_set_style_text_align(l, LV_TEXT_ALIGN_CENTER, 0);
@@ -900,6 +929,7 @@ static void build_speaker(lv_obj_t *face, int x, int y)
     show_speaker(muse_settings_speaker_on());
 }
 
+#if !MUSE_B_LIGHT
 static void set_canvas_px(int px)
 {
     if ((int)s_muse_src.header.w == px) {
@@ -920,9 +950,15 @@ static void move_muse_t(void *obj, int32_t t)
     lv_obj_align(s_canvas, LV_ALIGN_CENTER, 0, s_muse_y);
 }
 
-/* Eases Muse to `px` centred at `y`, from wherever it is now. */
+#endif
+
+/* Make room for a reply under the portrait. */
 static void move_muse(int px, int y)
 {
+#if MUSE_B_LIGHT
+    lv_image_set_scale(s_canvas, px * LV_SCALE_NONE / MUSE_B_PORTRAIT_PX);
+    lv_obj_align(s_canvas, LV_ALIGN_CENTER, 0, y);
+#else
     s_from_px = s_muse_src.header.w;
     s_from_y = s_muse_y;
     s_to_px = px;
@@ -935,6 +971,7 @@ static void move_muse(int px, int y)
     lv_anim_set_duration(&a, ANSWER_MS);
     lv_anim_set_path_cb(&a, lv_anim_path_ease_out);
     lv_anim_start(&a);
+#endif
 }
 
 static int reply_glyph_px(uint32_t letter, uint32_t next)
@@ -986,7 +1023,8 @@ static void set_answer(int which)
     if (l) {
         lv_obj_set_style_transform_scale_x(s_reply_lbl, l->scale * 256, 0);
         lv_obj_set_style_transform_scale_y(s_reply_lbl, l->scale * 256, 0);
-        lv_obj_set_size(s_reply_lbl, l->w / l->scale, l->h / l->scale);
+        lv_obj_set_size(s_reply_lbl, l->w / l->scale + (MUSE_B_LIGHT ? 28 : 0),
+                        l->h / l->scale + (MUSE_B_LIGHT ? 20 : 0));
         lv_obj_set_style_transform_pivot_x(s_reply_lbl, l->w / l->scale / 2, 0);
         lv_obj_set_style_transform_pivot_y(s_reply_lbl, l->h / l->scale / 2, 0);
         lv_obj_align(s_reply_lbl, LV_ALIGN_CENTER, 0, l->top + l->h / 2);
@@ -1093,9 +1131,16 @@ static void layout_read(int size)
     l->own_font = size < MUSE_TEXT_XLARGE;
     if (l->own_font) {
         l->font = reply_font(SIZES[size], &copies[size]);
+#if MUSE_B_LIGHT
+        l->font = muse_b_font(SIZES[size]);
+#endif
         l->scale = 1;
     } else {
         l->font = caption_font();
+#if MUSE_B_LIGHT
+        l->font = muse_b_font(&lv_font_montserrat_28);
+        l->own_font = true;
+#endif
         /* Rim hints fix a narrow reading column; doubled letters wouldn't fit it. */
         l->scale = s_w >= 400 && !muse_board->rim_controls ? 2 : 1;
     }
@@ -1106,9 +1151,10 @@ static void layout_read(int size)
     /* The widest page isn't the biggest: a round screen narrows towards the bottom. */
     /* Keep read replies in a central column clear of dedicated rim hints:
      * 13 of unscii-16's cells wide, at every size. */
-    int max_cols = muse_board->rim_controls ? 13 * 16 / cw : 24;
+    int max_cols = MUSE_B_LIGHT ? CAPTION_W / cw : muse_board->rim_controls ? 13 * 16 / cw : 24;
     for (int c = 4; c <= max_cols && fits_across(c * cw, top, ring_in); c++) {
-        int n = (reply_bottom(c * cw, ring_in) - top + CAPTION_LINE_SPACE) / pitch;
+        int bottom = MUSE_B_LIGHT ? 137 : reply_bottom(c * cw, ring_in);
+        int n = (bottom - top + CAPTION_LINE_SPACE) / pitch;
         /* A third of the caption spare for characters wider than a byte. */
         while ((c + 1) * n > MUSE_CAPTION_MAX * 2 / 3) {
             n--;
@@ -1118,8 +1164,8 @@ static void layout_read(int size)
         }
     }
     /* Centre the reading area between the avatar and the round bezel. */
-    int available = reply_bottom(l->w, ring_in) - top;
-    l->top = top + (available - l->h) / 2;
+    int available = (MUSE_B_LIGHT ? 137 : reply_bottom(l->w, ring_in)) - top;
+    l->top = top + (available - l->h) / 2 - (MUSE_B_LIGHT ? 8 : 0);
     ESP_LOGI(TAG, "read pages at text size %d: %d x %d", size, l->cols, l->lines);
 }
 
@@ -1129,6 +1175,33 @@ static void layout_read(int size)
  * small under the status line, and under it and the speaker button the
  * biggest page of reply text that fits inside the ring.
  */
+#if MUSE_B_LIGHT
+enum { REVIEW_CLOSE, REVIEW_OPEN, REVIEW_PREVIOUS, REVIEW_NEXT };
+
+static void on_review_click(lv_event_t *e)
+{
+    intptr_t action = (intptr_t)lv_event_get_user_data(e);
+    if (action == REVIEW_CLOSE) {
+        muse_review_close();
+    } else {
+        muse_review_step(action == REVIEW_PREVIOUS ? -1 : 1);
+    }
+    muse_state_nudge();
+}
+
+static lv_obj_t *review_button(lv_obj_t *face, const char *text, int x, intptr_t action)
+{
+    lv_obj_t *button = make_label(face, &lv_font_montserrat_14, COLOR_ACCENT);
+    lv_label_set_text(button, text);
+    muse_b_surface(button, MUSE_B_CARD, LV_RADIUS_CIRCLE, 10, 4);
+    lv_obj_align(button, LV_ALIGN_BOTTOM_MID, x, -58);
+    lv_obj_set_ext_click_area(button, 5);
+    lv_obj_add_flag(button, LV_OBJ_FLAG_CLICKABLE | LV_OBJ_FLAG_HIDDEN);
+    lv_obj_add_event_cb(button, on_review_click, LV_EVENT_CLICKED, (void *)action);
+    return button;
+}
+#endif
+
 static void build_answer(lv_obj_t *face, int ring_in)
 {
     int spk_r = (SPEAKER_PX + SPEAKER_GROW_PX) / 2;
@@ -1164,6 +1237,11 @@ static void build_answer(lv_obj_t *face, int ring_in)
         l->y -= art_bottom + 6 - l->top;   /* no room under Muse: it moves up */
     }
 
+    if (MUSE_B_LIGHT) {
+        l->px = 154;
+        l->y = -21;
+        set_reply_box(l, CAPTION_W / cw, 2, 92, cw, pitch);
+    }
     s_ring_in = ring_in;
     l = &s_answers[ANSWER_READ];
     int status_bottom = (muse_board->rim_controls ? 40 : 20 + s_dy) + 16 - s_h / 2;
@@ -1172,19 +1250,33 @@ static void build_answer(lv_obj_t *face, int ring_in)
     l->align = LV_TEXT_ALIGN_CENTER;
     art_bottom = l->y + l->px / 2 - ART_BLANK_ROWS * MINI_CELL_PX;
     s_read_top = (art_bottom > spk_y + spk_r ? art_bottom : spk_y + spk_r) + 8;
+    if (MUSE_B_LIGHT) {
+        l->y = -48;
+        s_read_top = 36;
+    }
     layout_read(muse_settings_text_size());
     ESP_LOGI(TAG, "reply pages: %d x %d heard", s_answers[ANSWER_HEARD].cols, s_answers[ANSWER_HEARD].lines);
 
     s_reply_lbl = make_label(face, font, COLOR_CAPTION);
     lv_obj_set_style_text_line_space(s_reply_lbl, CAPTION_LINE_SPACE, 0);
+#if MUSE_B_LIGHT
+    muse_b_surface(s_reply_lbl, MUSE_B_CARD, 22, 14, 10);
+#endif
     /* Pages come wrapped to fit; the transcript while thinking doesn't. */
     lv_label_set_long_mode(s_reply_lbl, LV_LABEL_LONG_MODE_WRAP);
     lv_obj_remove_flag(s_reply_lbl, LV_OBJ_FLAG_SCROLLABLE);
     lv_obj_add_flag(s_reply_lbl, LV_OBJ_FLAG_HIDDEN);
-#if CONFIG_MUSE_BOARD_SENSECAP_WATCHER
+#if CONFIG_MUSE_BOARD_SENSECAP_WATCHER || MUSE_B_LIGHT
+#if MUSE_B_LIGHT
+    s_review_open = review_button(face, "履歴", 0, REVIEW_OPEN);
+    s_review_prev = review_button(face, LV_SYMBOL_LEFT, -76, REVIEW_PREVIOUS);
+    s_review_next = review_button(face, LV_SYMBOL_RIGHT, 76, REVIEW_NEXT);
+    s_review_position = review_button(face, "", 0, REVIEW_CLOSE);
+#else
     s_review_position = make_label(face, &lv_font_unscii_8, COLOR_DIM);
     lv_obj_align(s_review_position, LV_ALIGN_BOTTOM_MID, 0, -30);
     lv_obj_add_flag(s_review_position, LV_OBJ_FLAG_HIDDEN);
+#endif
 #endif
 
     if (muse_board->touch && !muse_board->rim_controls) {
@@ -1193,7 +1285,7 @@ static void build_answer(lv_obj_t *face, int ring_in)
 
     /* Out of the way while a page is up: the mode name, where Muse was. */
     lv_obj_update_layout(face);
-    s_answers[ANSWER_READ].hides[0] = s_state_lbl;
+    if (!MUSE_B_LIGHT) s_answers[ANSWER_READ].hides[0] = s_state_lbl;
     s_answers[ANSWER_READ].hides[1] = s_name_lbl;   /* the reply takes the top too */
     add_hides(&s_answers[ANSWER_READ], 2);
     add_hides(&s_answers[ANSWER_HEARD], 0);
@@ -1404,7 +1496,11 @@ static void show_volume_hint(int volume)
      * the previous drag's fade. Children inherit the panel's opacity. */
     lv_anim_delete(s_volume_hint, volume_hint_opacity);
     lv_obj_set_style_opa(s_volume_hint, LV_OPA_COVER, 0);
-    lv_label_set_text_fmt(s_volume_percent, "%d%%", volume);
+    if (MUSE_B_LIGHT && volume == 0) {
+        lv_label_set_text(s_volume_percent, LV_SYMBOL_MUTE " 0%");
+    } else {
+        lv_label_set_text_fmt(s_volume_percent, "%d%%", volume);
+    }
     lv_bar_set_value(s_volume_bar, volume, LV_ANIM_OFF);
     lv_obj_remove_flag(s_volume_hint, LV_OBJ_FLAG_HIDDEN);
 }
@@ -1496,7 +1592,7 @@ static void build_screen(void)
     muse_text_keep_latin();   /* as muse_app_run() has: the fonts picked below depend on it */
 #endif
     lv_obj_t *scr = lv_screen_active();
-    muse_theme_set_style_bg_color(scr, lv_color_black(), 0);
+    muse_theme_set_style_bg_color(scr, lv_color_hex(MUSE_B_COLOR(MUSE_B_GROUND, 0)), 0);
     lv_obj_set_style_bg_opa(scr, LV_OPA_COVER, 0);
     lv_obj_remove_flag(scr, LV_OBJ_FLAG_SCROLLABLE);
 
@@ -1504,7 +1600,7 @@ static void build_screen(void)
     if (muse_board->touch) {
         /* Swipe left from Muse for settings. */
         s_tv = lv_tileview_create(scr);
-        muse_theme_set_style_bg_color(s_tv, lv_color_black(), 0);
+        muse_theme_set_style_bg_color(s_tv, lv_color_hex(MUSE_B_COLOR(MUSE_B_GROUND, 0)), 0);
         lv_obj_set_style_bg_opa(s_tv, LV_OPA_COVER, 0);
         lv_obj_set_scrollbar_mode(s_tv, LV_SCROLLBAR_MODE_OFF);
 #if CONFIG_MUSE_LATEST_REPLY
@@ -1518,7 +1614,7 @@ static void build_screen(void)
         lv_obj_set_scrollbar_mode(s_face, LV_SCROLLBAR_MODE_OFF);
         /* Match the avatar's black canvas; the tile's theme background otherwise
          * shows as a different-coloured square around the character. */
-        muse_theme_set_style_bg_color(s_face, lv_color_black(), 0);
+        muse_theme_set_style_bg_color(s_face, lv_color_hex(MUSE_B_COLOR(MUSE_B_GROUND, 0)), 0);
         lv_obj_set_style_bg_opa(s_face, LV_OPA_COVER, 0);
         s_settings = lv_tileview_add_tile(s_tv,
 #if CONFIG_MUSE_LATEST_REPLY
@@ -1548,7 +1644,7 @@ static void build_screen(void)
         lv_obj_align(s_bar, LV_ALIGN_BOTTOM_LEFT, 0, 0);
     } else if (!s_small) {
         /* Progress ring around the bezel. */
-        int d = (s_w < s_h ? s_w : s_h) - 8;
+        int d = (s_w < s_h ? s_w : s_h) - (MUSE_B_LIGHT ? 20 : 8);
         s_ring = lv_arc_create(face);
         lv_obj_set_size(s_ring, d, d);
         lv_obj_center(s_ring);
@@ -1560,8 +1656,9 @@ static void build_screen(void)
         lv_obj_remove_flag(s_ring, LV_OBJ_FLAG_CLICKABLE);
         lv_obj_set_style_arc_width(s_ring, 6, LV_PART_MAIN);
         muse_theme_set_style_arc_color(s_ring, lv_color_hex(COLOR_RING_BG), LV_PART_MAIN);
+        if (MUSE_B_LIGHT) lv_obj_set_style_arc_opa(s_ring, LV_OPA_60, LV_PART_MAIN);
         lv_obj_set_style_arc_width(s_ring, 6, LV_PART_INDICATOR);
-        lv_obj_set_style_arc_rounded(s_ring, false, LV_PART_INDICATOR);
+        lv_obj_set_style_arc_rounded(s_ring, MUSE_B_LIGHT, LV_PART_INDICATOR);
         lv_obj_add_event_cb(s_ring, on_ring_draw, LV_EVENT_DRAW_MAIN | LV_EVENT_PREPROCESS, NULL);
     }
 
@@ -1586,11 +1683,21 @@ static void build_screen(void)
 #endif
 
     /* The character. */
-    muse_image_init();
     s_canvas = lv_image_create(face);
+#if MUSE_B_LIGHT
+    s_big_y = -2;
+    meter_y = 67;
+    cap_top = 108;
+    cap_h = 2 * lv_font_get_line_height(caption_font()) + CAPTION_LINE_SPACE;
+    lv_image_set_src(s_canvas, muse_b_portrait(MUSE_MODE_BOOT, false));
+#else
+    muse_image_init();
     lv_image_set_src(s_canvas, &s_muse_src);
+#endif
     lv_obj_align(s_canvas, LV_ALIGN_CENTER, 0, s_big_y);
+#if !MUSE_B_LIGHT
     s_muse_y = s_big_y;
+#endif
     lv_obj_add_flag(s_canvas, LV_OBJ_FLAG_CLICKABLE);
     lv_obj_add_event_cb(s_canvas, on_canvas_clicked, LV_EVENT_CLICKED, NULL);
     if (muse_board->touch && muse_board->audio_init) {
@@ -1610,7 +1717,7 @@ static void build_screen(void)
     lv_obj_set_flex_flow(status, LV_FLEX_FLOW_ROW);
     lv_obj_set_flex_align(status, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
     lv_obj_set_style_pad_column(status, s_small ? 4 : 8, 0);
-    lv_obj_align(status, LV_ALIGN_TOP_MID, 0, muse_board->rim_controls ? 40 : s_small ? 1 : 20 + s_dy);
+    lv_obj_align(status, LV_ALIGN_TOP_MID, 0, MUSE_B_LIGHT ? 33 : muse_board->rim_controls ? 40 : s_small ? 1 : 20 + s_dy);
     s_wifi_icon = make_label(status, &lv_font_montserrat_14, COLOR_DIM);
     s_ble_icon = make_label(status, &lv_font_montserrat_14, COLOR_DIM);
 #if CONFIG_MUSE_WAKEWORD_ENABLE
@@ -1618,7 +1725,10 @@ static void build_screen(void)
     s_listen_icon = make_mic(status, s_small ? 10 : 14);
     lv_obj_add_flag(s_listen_icon, LV_OBJ_FLAG_HIDDEN);
 #endif
-    s_power_lbl = make_label(status, &lv_font_unscii_8, COLOR_DIM);
+    s_power_lbl = make_label(status, MUSE_B_LIGHT ? &lv_font_montserrat_14 : &lv_font_unscii_8, COLOR_DIM);
+#if MUSE_B_LIGHT
+    muse_b_surface(s_power_lbl, MUSE_B_CARD, LV_RADIUS_CIRCLE, 8, 2);
+#endif
 
     /* The compact layout leaves the state to the avatar and the caption,
      * unless the screen is tall enough to fit it in small type above Muse. */
@@ -1634,7 +1744,7 @@ static void build_screen(void)
     s_name_lbl = make_label(face, s_small ? &lv_font_unscii_8 : &lv_font_unscii_16, COLOR_DIM);
     /* Under the state, which a small screen draws in unscii-8 or, with accented
      * letters, the caption font's 16 px (update_status). */
-    int state_h = lv_font_get_line_height(muse_lang_label_font(muse_lang_status("READY"), &lv_font_unscii_8));
+    int state_h = lv_font_get_line_height(muse_lang_label_font(UI_STATUS("READY"), &lv_font_unscii_8));
     lv_obj_align(s_name_lbl, LV_ALIGN_TOP_MID, 0, muse_board->rim_controls ? 88 : s_small ? 24 + state_h : 60 + s_dy);
     if (muse_board->rim_controls) {
         /* Safe chord below the round panel's top, not the full 466 px width. */
@@ -1643,6 +1753,14 @@ static void build_screen(void)
         lv_label_set_long_mode(s_state_lbl, LV_LABEL_LONG_MODE_DOTS);
         lv_label_set_long_mode(s_name_lbl, LV_LABEL_LONG_MODE_DOTS);
     }
+#if MUSE_B_LIGHT
+    lv_obj_set_size(s_state_lbl, LV_SIZE_CONTENT, LV_SIZE_CONTENT);
+    lv_obj_set_style_text_letter_space(s_state_lbl, 0, 0);
+    muse_b_surface(s_state_lbl, MUSE_B_TINT, LV_RADIUS_CIRCLE, 16, 4);
+    lv_obj_set_style_text_font(s_name_lbl, muse_b_font(&lv_font_montserrat_14), 0);
+    lv_obj_set_height(s_name_lbl, LV_SIZE_CONTENT);
+    lv_obj_align(s_name_lbl, LV_ALIGN_TOP_MID, 0, 99);
+#endif
     /* Same rule as the state label: a square 128 px screen centres Muse over
      * these rows, so there's nowhere to put this without covering the face. */
     lv_obj_set_flag(s_name_lbl, LV_OBJ_FLAG_HIDDEN, s_small && !s_tall && s_h < 200);
@@ -1739,6 +1857,10 @@ static void build_screen(void)
     }
     /* Fixed height: a longer caption ends in dots rather than growing into the ring. */
     lv_obj_set_size(s_caption_lbl, CAPTION_W, cap_h);
+#if MUSE_B_LIGHT
+    muse_b_surface(s_caption_lbl, MUSE_B_CARD, 22, 14, 10);
+    lv_obj_set_size(s_caption_lbl, CAPTION_W + 28, cap_h + 20);
+#endif
     lv_obj_set_style_text_line_space(s_caption_lbl, CAPTION_LINE_SPACE, 0);
     lv_label_set_long_mode(s_caption_lbl, LV_LABEL_LONG_MODE_DOTS);
     lv_obj_align(s_caption_lbl, LV_ALIGN_CENTER, 0, cap_top + cap_h / 2);
@@ -1749,7 +1871,9 @@ static void build_screen(void)
         lv_obj_t *seg = lv_obj_create(face);
         lv_obj_remove_style_all(seg);
         lv_obj_remove_flag(seg, LV_OBJ_FLAG_SCROLLABLE);
-        lv_obj_set_size(seg, METER_SEG_PX, METER_SEG_PX);
+        lv_obj_set_size(seg, MUSE_B_LIGHT ? 4 : METER_SEG_PX,
+                        MUSE_B_LIGHT ? 6 + (METER_SEGS - abs(2 * i - (METER_SEGS - 1))) / 2 : METER_SEG_PX);
+        if (MUSE_B_LIGHT) lv_obj_set_style_radius(seg, LV_RADIUS_CIRCLE, 0);
         lv_obj_set_style_bg_opa(seg, LV_OPA_COVER, 0);
         muse_theme_set_style_bg_color(seg, lv_color_hex(COLOR_METER_OFF), 0);
         int x = -span / 2 + i * (METER_SEG_PX + METER_GAP_PX) + METER_SEG_PX / 2;
@@ -1846,10 +1970,16 @@ static lv_obj_t *make_control_icon(lv_obj_t *scr, const muse_button_hint_t *pos,
                                    const char *symbol, uint32_t color)
 {
     lv_obj_t *icon = make_label(scr, &lv_font_montserrat_28, color);
-    lv_obj_set_size(icon, 36, 36);
+    lv_obj_set_size(icon, MUSE_B_LIGHT ? 48 : 36, MUSE_B_LIGHT ? 48 : 36);
     muse_theme_set_style_bg_color(icon, lv_color_black(), 0);
     lv_obj_set_style_bg_opa(icon, LV_OPA_COVER, 0);
     lv_obj_set_style_radius(icon, 6, 0);
+#if MUSE_B_LIGHT
+    muse_b_surface(icon, MUSE_B_GROUND, LV_RADIUS_CIRCLE, 0, 8);
+    lv_obj_set_style_border_width(icon, 1, 0);
+    lv_obj_set_style_border_color(icon, lv_color_hex(MUSE_B_DOT), 0);
+    lv_obj_set_style_text_font(icon, &lv_font_montserrat_20, 0);
+#endif
     lv_label_set_long_mode(icon, LV_LABEL_LONG_MODE_CLIP);
     lv_label_set_text(icon, symbol);
     lv_obj_remove_flag(icon, LV_OBJ_FLAG_CLICKABLE);
@@ -1863,19 +1993,33 @@ static void update_control_hints(muse_mode_t mode)
     if (!s_ptt_hint) return;
     /* Don't obscure settings rows/keyboards with floating physical icons. */
     bool settings = s_tv && lv_tileview_get_tile_active(s_tv) == s_settings;
+#if MUSE_B_LIGHT
+    lv_obj_set_flag(s_mic_ring, LV_OBJ_FLAG_HIDDEN, settings);
+#else
     lv_obj_set_flag(s_ptt_hint, LV_OBJ_FLAG_HIDDEN, settings);
+#endif
     lv_obj_set_flag(s_spk_hint, LV_OBJ_FLAG_HIDDEN, settings);
     lv_obj_set_flag(s_pwr_hint, LV_OBJ_FLAG_HIDDEN, settings);
     static int last_mode = -1;
     if ((int)mode != last_mode) {
-        color_mic(s_ptt_hint, mode == MUSE_MODE_LISTENING ? 0x64d4ff : 0x80bfff);
+        color_mic(s_ptt_hint, mode == MUSE_MODE_LISTENING ?
+                  MUSE_B_COLOR(MUSE_B_BLUE, 0x64d4ff) : MUSE_B_COLOR(MUSE_B_DIM, 0x80bfff));
+#if MUSE_B_LIGHT
+        lv_obj_set_style_border_color(s_mic_ring,
+            lv_color_hex(mode == MUSE_MODE_LISTENING ? MUSE_B_BLUE : MUSE_B_DOT), 0);
+#endif
+#if MUSE_B_LIGHT
+        const muse_button_hint_t *power = &muse_board->power_hint;
+        bool caption = mode == MUSE_MODE_SPEAKING || mode == MUSE_MODE_THINKING || mode == MUSE_MODE_ERROR;
+        lv_obj_align(s_pwr_hint, power->align, power->x, power->y - (caption ? 42 : 0));
+#endif
         last_mode = (int)mode;
     }
     bool speaker_on = muse_settings_speaker_on();
     const char *speaker = speaker_on ? LV_SYMBOL_VOLUME_MID : LV_SYMBOL_MUTE;
     if (strcmp(speaker, lv_label_get_text(s_spk_hint))) {
         lv_label_set_text(s_spk_hint, speaker);
-        muse_theme_set_style_text_color(s_spk_hint, lv_color_hex(speaker_on ? 0xffd060 : 0x8b7845), 0);
+        muse_theme_set_style_text_color(s_spk_hint, lv_color_hex(speaker_on ? MUSE_B_COLOR(MUSE_B_DIM, 0xffd060) : MUSE_B_COLOR(MUSE_B_BLUE, 0x8b7845)), 0);
     }
 }
 
@@ -1884,30 +2028,30 @@ static void build_overlays(void)
     lv_obj_t *scr = lv_screen_active();
 
     if (muse_board->touch && muse_board->audio_init) {
-        int bar_height = s_h / 3;
+        int bar_height = MUSE_B_LIGHT ? 114 : s_h / 3;
         if (bar_height > 160) bar_height = 160;
         int pad = s_small ? 6 : 10;
         const lv_font_t *font = font_pick(&lv_font_montserrat_20, FONT_COMPACT);
         s_volume_hint = lv_obj_create(lv_layer_top());
         lv_obj_remove_style_all(s_volume_hint);
-        lv_obj_set_size(s_volume_hint, s_small ? 48 : 64,
+        lv_obj_set_size(s_volume_hint, MUSE_B_LIGHT ? 72 : s_small ? 48 : 64,
                         bar_height + lv_font_get_line_height(font) + pad * 3);
-        muse_theme_set_style_bg_color(s_volume_hint, lv_color_hex(0x201a35), 0);
+        muse_theme_set_style_bg_color(s_volume_hint, lv_color_hex(MUSE_B_COLOR(MUSE_B_CARD, 0x201a35)), 0);
         lv_obj_set_style_bg_opa(s_volume_hint, LV_OPA_COVER, 0);
         lv_obj_set_style_pad_all(s_volume_hint, pad, 0);
         lv_obj_set_style_radius(s_volume_hint, 16, 0);
-        lv_obj_align(s_volume_hint, LV_ALIGN_CENTER, s_w / 4, 0);
+        lv_obj_align(s_volume_hint, LV_ALIGN_CENTER, MUSE_B_LIGHT ? 152 : s_w / 4, MUSE_B_LIGHT ? 22 : 0);
         lv_obj_remove_flag(s_volume_hint, LV_OBJ_FLAG_CLICKABLE | LV_OBJ_FLAG_SCROLLABLE);
 
-        s_volume_percent = make_label(s_volume_hint, font, COLOR_LIT);
+        s_volume_percent = make_label(s_volume_hint, font, MUSE_B_COLOR(MUSE_B_BLUE, COLOR_LIT));
         lv_obj_align(s_volume_percent, LV_ALIGN_TOP_MID, 0, 0);
         lv_obj_remove_flag(s_volume_percent, LV_OBJ_FLAG_CLICKABLE);
         s_volume_bar = lv_bar_create(s_volume_hint);
-        lv_obj_set_size(s_volume_bar, s_small ? 12 : 20, bar_height);
+        lv_obj_set_size(s_volume_bar, MUSE_B_LIGHT ? 10 : s_small ? 12 : 20, bar_height);
         lv_obj_align(s_volume_bar, LV_ALIGN_BOTTOM_MID, 0, 0);
         lv_bar_set_orientation(s_volume_bar, LV_BAR_ORIENTATION_VERTICAL);
         lv_bar_set_range(s_volume_bar, 0, 100);
-        muse_theme_set_style_bg_color(s_volume_bar, lv_color_hex(0x3a3052), LV_PART_MAIN);
+        muse_theme_set_style_bg_color(s_volume_bar, lv_color_hex(MUSE_B_COLOR(MUSE_B_TRACK, 0x3a3052)), LV_PART_MAIN);
         muse_theme_set_style_bg_color(s_volume_bar, lv_color_hex(COLOR_ACCENT), LV_PART_INDICATOR);
         lv_obj_set_style_radius(s_volume_bar, LV_RADIUS_CIRCLE, LV_PART_MAIN);
         lv_obj_set_style_radius(s_volume_bar, LV_RADIUS_CIRCLE, LV_PART_INDICATOR);
@@ -1924,7 +2068,7 @@ static void build_overlays(void)
         lv_obj_set_style_bg_opa(d, LV_OPA_COVER, 0);
         muse_theme_set_style_bg_color(d, lv_color_hex(COLOR_DOT_OFF), 0);
         lv_obj_remove_flag(d, LV_OBJ_FLAG_CLICKABLE);
-        lv_obj_align(d, LV_ALIGN_BOTTOM_MID, (2 * i - (PAGE_DOTS - 1)) * 8, -14);
+        lv_obj_align(d, LV_ALIGN_BOTTOM_MID, (2 * i - (PAGE_DOTS - 1)) * 8, MUSE_B_LIGHT ? -42 : -14);
         s_dots[i] = d;
     }
 
@@ -1938,7 +2082,7 @@ static void build_overlays(void)
     s_camera_hint = lv_btn_create(scr);
     lv_obj_set_size(s_camera_hint, 244, 46);
     lv_obj_align(s_camera_hint, LV_ALIGN_BOTTOM_MID, 0, -20);
-    muse_theme_set_style_bg_color(s_camera_hint, lv_color_hex(0x201a35), 0);
+    muse_theme_set_style_bg_color(s_camera_hint, lv_color_hex(MUSE_B_COLOR(MUSE_B_CARD, 0x201a35)), 0);
     lv_obj_set_style_bg_opa(s_camera_hint, LV_OPA_90, 0);
     muse_theme_set_style_border_color(s_camera_hint, lv_color_hex(COLOR_ACCENT), 0);
     lv_obj_set_style_border_width(s_camera_hint, 2, 0);
@@ -1952,10 +2096,16 @@ static void build_overlays(void)
 
     if (muse_board->rim_controls) {
         /* Dedicated ownership: legacy chrome/reply hides must never claim it. */
+#if MUSE_B_LIGHT
+        s_mic_ring = make_control_icon(scr, &muse_board->talk_hint, "", COLOR_DIM);
+        s_ptt_hint = make_mic(s_mic_ring, 26);
+        lv_obj_center(s_ptt_hint);
+#else
         s_ptt_hint = make_mic(scr, 26);
         lv_obj_align(s_ptt_hint, muse_board->talk_hint.align, muse_board->talk_hint.x, muse_board->talk_hint.y);
-        s_spk_hint = make_control_icon(scr, &muse_board->speaker_hint, LV_SYMBOL_VOLUME_MID, 0xffd060);
-        s_pwr_hint = make_control_icon(scr, &muse_board->power_hint, LV_SYMBOL_POWER, 0xff8080);
+#endif
+        s_spk_hint = make_control_icon(scr, &muse_board->speaker_hint, LV_SYMBOL_VOLUME_MID, MUSE_B_COLOR(MUSE_B_DIM, 0xffd060));
+        s_pwr_hint = make_control_icon(scr, &muse_board->power_hint, LV_SYMBOL_POWER, MUSE_B_COLOR(MUSE_B_DIM, 0xff8080));
 #if CONFIG_MUSE_BOARD_M5STACK_STOPWATCH_FAMILY && CONFIG_MUSE_REALTIME_VOICE
         /* During a push-to-talk call: what yellow does now, and that blue
          * hangs up. Under each rim icon, pushed out towards the rim, clear of
@@ -1993,18 +2143,18 @@ static void build_overlays(void)
     lv_obj_set_style_pad_row(s_pair, s_small ? 4 : 10, 0);
     lv_obj_set_style_radius(s_pair, s_small ? 10 : 24, 0);
     lv_obj_set_style_bg_opa(s_pair, LV_OPA_COVER, 0);
-    muse_theme_set_style_bg_color(s_pair, lv_color_hex(0x1a1530), 0);
+    muse_theme_set_style_bg_color(s_pair, lv_color_hex(MUSE_B_COLOR(MUSE_B_CARD, 0x1a1530)), 0);
     muse_theme_set_style_border_color(s_pair, lv_color_hex(COLOR_ACCENT), 0);
-    lv_obj_set_style_border_width(s_pair, 2, 0);
+    lv_obj_set_style_border_width(s_pair, MUSE_B_LIGHT ? 0 : 2, 0);
     lv_obj_remove_flag(s_pair, LV_OBJ_FLAG_SCROLLABLE);
     lv_obj_add_flag(s_pair, LV_OBJ_FLAG_HIDDEN);
     s_pair_title = make_label(s_pair, muse_lang_montserrat(font_pick(&lv_font_montserrat_20, FONT_COMPACT)), COLOR_LIT);
-    lv_label_set_text(s_pair_title, muse_lang_menu("Pairing code"));
+    lv_label_set_text(s_pair_title, UI_MENU("Pairing code"));
     s_pair_code = make_label(s_pair, muse_lang_montserrat(font_pick(&lv_font_montserrat_28, &lv_font_montserrat_20)),
                              COLOR_ACCENT);
     lv_obj_set_style_text_letter_space(s_pair_code, s_small ? 2 : 6, 0);
     s_pair_hint = make_label(s_pair, muse_lang_montserrat(font_pick(&lv_font_montserrat_14, FONT_COMPACT)), COLOR_DIM);
-    lv_label_set_text(s_pair_hint, muse_lang_menu(s_small ? "Enter on phone" : "Enter it on your phone"));
+    lv_label_set_text(s_pair_hint, UI_MENU(s_small ? "Enter on phone" : "Enter it on your phone"));
     /* Wraps: "bottom right button" is wider than the AIPI's card. */
     lv_obj_set_width(s_pair_hint, lv_pct(100));
     lv_label_set_long_mode(s_pair_hint, LV_LABEL_LONG_MODE_WRAP);
@@ -2024,7 +2174,12 @@ static void build_overlays(void)
     s_cover = lv_obj_create(lv_layer_top());
     lv_obj_remove_style_all(s_cover);
     lv_obj_set_size(s_cover, lv_pct(100), lv_pct(100));
-    lv_obj_set_style_bg_color(s_cover, lv_color_black(), 0);
+    lv_obj_set_style_bg_color(s_cover, lv_color_hex(MUSE_B_COLOR(MUSE_B_SLEEP, 0)), 0);
+#if MUSE_B_LIGHT
+    lv_obj_t *s_sleep_label = make_label(s_cover, caption_font(), COLOR_DIM);
+    lv_label_set_text(s_sleep_label, "スリープ");
+    lv_obj_center(s_sleep_label);
+#endif
     lv_obj_add_flag(s_cover, LV_OBJ_FLAG_CLICKABLE | LV_OBJ_FLAG_HIDDEN);
     lv_obj_add_event_cb(s_cover, on_cover_event, LV_EVENT_PRESSED, NULL);
     lv_obj_add_event_cb(s_cover, on_cover_event, LV_EVENT_RELEASED, NULL);
@@ -2057,6 +2212,9 @@ static bool update_sleep(void)
 {
     bool asleep = muse_state_asleep();
     if (asleep && !s_dark) {
+#if MUSE_B_LIGHT
+        muse_review_close();
+#endif
         muse_menu_close();
 #if CONFIG_MUSE_LATEST_REPLY
         if (s_tv) lv_tileview_set_tile(s_tv, s_face, LV_ANIM_OFF);
@@ -2187,6 +2345,9 @@ static void update_chrome(float now)
     muse_hatch_status_t h;
     muse_hatch_status(&h);
     bool paired = h.state != MUSE_HATCH_NOT_SET;
+#if MUSE_B_LIGHT
+    if (!paired && w.state == MUSE_WIFI_CONNECTED) s_idle_name = "UNPAIRED";
+#endif
 
     /* The gadget's name, until it's paired. Emptied rather than hidden: the
      * read layout unhides it on the way out. A narrow screen gets the hex tail
@@ -2211,26 +2372,30 @@ static void update_chrome(float now)
     /* The same card asks for the talk button when the Muse app pairs. */
     bool confirm = !b.passkey && muse_link_state() == MUSE_LINK_CONFIRM;
     if (b.passkey || confirm) {
-        char code[24], hint[40];
+        char code[24], hint[MUSE_B_LIGHT ? 96 : 40];
         if (confirm) {
             if (muse_board->touch_talk || !muse_board->audio_init) {
                 strlcpy(code, "Tap screen", sizeof(code));
                 strlcpy(hint, "Tap to confirm pairing", sizeof(hint));
             } else {
                 strlcpy(code, s_small ? "Press" : "Press button", sizeof(code));
-                snprintf(hint, sizeof(hint), muse_lang_menu(s_small ? "%s button" : "Press the %s button"),
+                snprintf(hint, sizeof(hint), UI_MENU(s_small ? "%s button" : "Press the %s button"),
+#if MUSE_B_LIGHT
+                         muse_b_text(muse_board->talk_button));
+#else
                          muse_board->talk_button);
+#endif
             }
         } else {
             snprintf(code, sizeof(code), "%06lu", (unsigned long)b.passkey);
             strlcpy(hint, s_small ? "Enter on phone" : "Enter it on your phone", sizeof(hint));
         }
         const char *title = confirm ? (s_small ? "Muse app" : "Pair with Muse app") : "Pairing code";
-        const char *shown = muse_lang_menu(code);
+        const char *shown = UI_MENU(code);
         if (strcmp(shown, lv_label_get_text(s_pair_code)) != 0) {
             lv_label_set_text(s_pair_code, shown);
-            lv_label_set_text(s_pair_title, muse_lang_menu(title));
-            lv_label_set_text(s_pair_hint, muse_lang_menu(hint));
+            lv_label_set_text(s_pair_title, UI_MENU(title));
+            lv_label_set_text(s_pair_hint, UI_MENU(hint));
         }
     }
     lv_obj_set_flag(s_pair, LV_OBJ_FLAG_HIDDEN, !b.passkey && !confirm);
@@ -2260,6 +2425,12 @@ static void invalidate_meter(void)
     lv_obj_get_coords(s_meter[0], &a);
     lv_obj_get_coords(s_meter[METER_SEGS - 1], &last);
     a.x2 = last.x2;
+    if (MUSE_B_LIGHT) {
+        lv_area_t tallest;
+        lv_obj_get_coords(s_meter[METER_SEGS / 2], &tallest);
+        a.y1 = tallest.y1;
+        a.y2 = tallest.y2;
+    }
     lv_obj_invalidate_area(lv_obj_get_parent(s_meter[0]), &a);
 }
 
@@ -2290,16 +2461,23 @@ static void update_power(float now)
     muse_power_t p = muse_state_power();
     char buf[32];
     if (p.battery_pct < 0) {
-        strlcpy(buf, p.usb ? (s_small ? "USB" : muse_lang_status("USB POWER")) : "", sizeof(buf));
+        strlcpy(buf, p.usb ? (s_small ? "USB" : UI_STATUS("USB POWER")) : "", sizeof(buf));
     } else if (s_small) {
         snprintf(buf, sizeof(buf), "%s%d%%", p.charging ? "+" : "", p.battery_pct);
     } else if (p.charging) {
-        snprintf(buf, sizeof(buf), muse_lang_status("CHARGING %d%%"), p.battery_pct);
+        snprintf(buf, sizeof(buf), UI_STATUS("CHARGING %d%%"), p.battery_pct);
     } else {
-        snprintf(buf, sizeof(buf), muse_lang_status("BATTERY %d%%"), p.battery_pct);
+        snprintf(buf, sizeof(buf), UI_STATUS("BATTERY %d%%"), p.battery_pct);
     }
+#if MUSE_B_LIGHT
+    const bool low = p.battery_pct >= 0 && p.battery_pct < 15 && !p.charging;
+    lv_obj_set_style_text_color(s_power_lbl, lv_color_hex(low ? MUSE_B_AMBER : p.charging ? MUSE_B_BLUE : MUSE_B_DIM), 0);
+    lv_obj_set_style_bg_color(s_power_lbl, lv_color_hex(low ? MUSE_B_AMBER_TINT : p.charging ? MUSE_B_TINT : MUSE_B_CARD), 0);
+#endif
     if (strcmp(buf, lv_label_get_text(s_power_lbl)) != 0) {
+#if !MUSE_B_LIGHT
         lv_obj_set_style_text_font(s_power_lbl, muse_lang_label_font(buf, &lv_font_unscii_8), 0);
+#endif
         lv_label_set_text(s_power_lbl, buf);
     }
 }
@@ -2344,13 +2522,17 @@ static void set_full_reply(bool on)
 
 static void update_status(muse_mode_t mode, float now)
 {
-    uint32_t accent = muse_pixel_accent(mode);
     const char *name = mode == MUSE_MODE_IDLE ? s_idle_name : MODE_NAMES[mode];
+#if MUSE_B_LIGHT
+    uint32_t accent = mode == MUSE_MODE_ERROR ? MUSE_B_RED : MUSE_B_BLUE;
+#else
+    uint32_t accent = muse_pixel_accent(mode);
     if (mode == MUSE_MODE_THINKING && muse_voice_call_view() == MUSE_VOICE_VIEW_WORKING) {
         name = "WORKING";
         uint32_t working = muse_pixel_working_accent();
         if (working) accent = working;   /* the ring and label match the working avatar */
     }
+#endif
 #if CONFIG_MUSE_BOARD_M5STACK_STOPWATCH_FAMILY && CONFIG_MUSE_REALTIME_VOICE
     const char *call_name = muse_voice_call_label();
     const char *hint = muse_voice_call_hint();
@@ -2367,20 +2549,35 @@ static void update_status(muse_mode_t mode, float now)
     }
 #endif
 
+#if MUSE_B_LIGHT
+    if (mode == MUSE_MODE_IDLE && muse_review_active()) name = "History";
+#endif
     if (name != s_shown_name) {
-        const char *shown = muse_lang_status(name);
+        const char *shown = UI_STATUS(name);
+#if !MUSE_B_LIGHT
         lv_obj_set_style_text_font(s_state_lbl, muse_lang_label_font(shown, s_small ? &lv_font_unscii_8 : &lv_font_unscii_16), 0);
+#endif
         lv_label_set_text(s_state_lbl, shown);
         s_shown_name = name;
     }
     if ((int)mode != s_shown_state || accent != s_shown_status_accent) {
         muse_theme_set_style_text_color(s_state_lbl, lv_color_hex(accent), 0);
+#if MUSE_B_LIGHT
+        lv_obj_set_style_bg_color(s_state_lbl, lv_color_hex(mode == MUSE_MODE_ERROR ? MUSE_B_RED_TINT : MUSE_B_TINT), 0);
+#endif
         if (s_ring) {
             muse_theme_set_style_arc_color(s_ring, lv_color_hex(accent), LV_PART_INDICATOR);
         } else {
             muse_theme_set_style_bg_color(s_bar, lv_color_hex(accent), 0);
         }
         set_mic_color(mode == MUSE_MODE_LISTENING ? accent : COLOR_DIM);   /* legacy face icon */
+        if (MUSE_B_LIGHT && !s_small) {
+            int span = METER_SEGS * (METER_SEG_PX + METER_GAP_PX) - METER_GAP_PX;
+            for (int i = 0; i < METER_SEGS; i++) {
+                int x = -span / 2 + i * (METER_SEG_PX + METER_GAP_PX) + METER_SEG_PX / 2;
+                lv_obj_align(s_meter[i], LV_ALIGN_CENTER, x, mode == MUSE_MODE_LISTENING ? 91 : 67);
+            }
+        }
         s_shown_state = (int)mode;
         s_shown_status_accent = accent;
         s_shown_lit = -1;
@@ -2419,7 +2616,8 @@ static void update_status(muse_mode_t mode, float now)
     }
 
     /* The mic's meter; a reply's page has the room while answering. */
-    bool meter = mode == MUSE_MODE_LISTENING;
+    bool meter = mode == MUSE_MODE_LISTENING ||
+                 (MUSE_B_LIGHT && mode == MUSE_MODE_SPEAKING && muse_settings_speaker_on());
     set_meter_visible(meter);
     if (meter && !s_small) {
         int lit = (int)lroundf(s_level * METER_SEGS);
@@ -2439,19 +2637,31 @@ static void update_status(muse_mode_t mode, float now)
     static char caption[MUSE_CAPTION_MAX];
     bool fresh = muse_state_caption(caption, sizeof(caption), &s_caption_version);
     const char *shown = caption;
+#if MUSE_B_LIGHT
+    shown = muse_b_text(shown);
+    if (mode == MUSE_MODE_ERROR && !shown[0]) shown = "接続や設定を確認してください";
+    bool mode_changed = mode != s_b_caption_mode;
+    if (mode_changed) {
+        fresh = true;
+        s_b_caption_mode = mode;
+    }
+#endif
     int answer = -1;
     bool relaid = false;   /* the read page moved under the reply showing */
-#if CONFIG_MUSE_BOARD_SENSECAP_WATCHER
+#if CONFIG_MUSE_BOARD_SENSECAP_WATCHER || MUSE_B_LIGHT
     /* The review page has its own buffer, so the live caption is still there to
      * go back to when review ends, including any that arrived meanwhile. */
     static char review[MUSE_CAPTION_MAX];
     static muse_review_view_t view;
+#if MUSE_B_LIGHT
+    if (mode == MUSE_MODE_LISTENING || mode == MUSE_MODE_OFF || mode == MUSE_MODE_ERROR) muse_review_close();
+#endif
     bool reviewing = muse_review_active();
 #endif
     if (s_reply_lbl) {
         /* The speaker picks the layout, even mid-reply: the voice task pages to fit. */
         int layout = muse_board->audio_init && muse_settings_speaker_on() ? ANSWER_HEARD : ANSWER_READ;
-#if CONFIG_MUSE_BOARD_SENSECAP_WATCHER
+#if CONFIG_MUSE_BOARD_SENSECAP_WATCHER || MUSE_B_LIGHT
         if (reviewing) layout = ANSWER_READ;
 #endif
         if (muse_settings_text_size() != s_read_size) {
@@ -2466,14 +2676,14 @@ static void update_status(muse_mode_t mode, float now)
             muse_chat_set_caption_px(s_answers[layout].w, reply_glyph_px);
             muse_state_set_page(MUSE_CAPTION_MAX * 2 / 3 / s_answers[layout].lines - 1,
                                 s_answers[layout].lines);
-#if CONFIG_MUSE_BOARD_SENSECAP_WATCHER
+#if CONFIG_MUSE_BOARD_SENSECAP_WATCHER || MUSE_B_LIGHT
             view.stale = true;   /* a page wrapped for the old layout is wrapped again */
 #endif
         }
         if (mode == MUSE_MODE_THINKING || mode == MUSE_MODE_SPEAKING) {
             answer = layout;
         }
-#if CONFIG_MUSE_BOARD_SENSECAP_WATCHER
+#if CONFIG_MUSE_BOARD_SENSECAP_WATCHER || MUSE_B_LIGHT
         bool review_changed;
         reviewing = muse_review_frame(&view, review, sizeof(review), &review_changed);
         if (reviewing) {
@@ -2484,17 +2694,36 @@ static void update_status(muse_mode_t mode, float now)
             fresh = true;
             if (reviewing) {
                 char position[24];
-                snprintf(position, sizeof(position), "%d / %d", view.page, view.pages);
+                snprintf(position, sizeof(position), MUSE_B_LIGHT ? "%d / %d  " LV_SYMBOL_CLOSE : "%d / %d",
+                         view.page, view.pages);
                 lv_label_set_text(s_review_position, position);
             }
             lv_obj_set_flag(s_review_position, LV_OBJ_FLAG_HIDDEN, !reviewing);
+#if MUSE_B_LIGHT
+            lv_obj_set_flag(s_review_prev, LV_OBJ_FLAG_HIDDEN, !reviewing || view.page <= 1);
+            lv_obj_set_flag(s_review_next, LV_OBJ_FLAG_HIDDEN, !reviewing || view.page >= view.pages);
+#endif
         }
+#if MUSE_B_LIGHT
+        if (!reviewing && mode == MUSE_MODE_IDLE) {
+            muse_review_snapshot_t snapshot;
+            muse_review_snapshot(NULL, 0, &snapshot);
+            lv_obj_set_flag(s_review_open, LV_OBJ_FLAG_HIDDEN, !snapshot.available);
+        } else {
+            lv_obj_add_flag(s_review_open, LV_OBJ_FLAG_HIDDEN);
+        }
+#endif
 #endif
     }
     if (answer != s_answer || relaid) {
         set_answer(answer);
         fresh = true;   /* the caption moves between labels */
     }
+#if MUSE_B_LIGHT
+    if (mode_changed && answer < 0) {
+        move_muse(s_canvas_px, mode == MUSE_MODE_LISTENING ? -22 : s_big_y);
+    }
+#endif
     if (fresh) {
         lv_obj_t *lbl = answer >= 0 ? s_reply_lbl : s_caption_lbl;
         if (answer >= 0) lv_obj_set_style_text_font(lbl, s_answers[answer].font, 0);
@@ -2520,7 +2749,7 @@ static void update_status(muse_mode_t mode, float now)
                              l->w / l->scale, LV_TEXT_FLAG_NONE);
             int height = size.y < l->h / l->scale ? size.y : l->h / l->scale;
             if (height < 1) height = 1;
-            lv_obj_set_height(lbl, height);
+            lv_obj_set_height(lbl, height + (MUSE_B_LIGHT ? 20 : 0));
             lv_obj_set_style_transform_pivot_y(lbl, height / 2, 0);
             lv_obj_align(lbl, LV_ALIGN_CENTER, 0, l->top + l->h / 2);
         }
@@ -2612,8 +2841,10 @@ static void frame_tick(lv_timer_t *timer)
 #endif
 #if CONFIG_MUSE_UI_THEME
     if (muse_theme_lvgl_tick()) {
+#if !MUSE_B_LIGHT
         muse_pixel_set_background(muse_theme_background());
         s_cells_valid = false;
+#endif
         if (s_canvas) lv_obj_invalidate(s_canvas);
     }
 #endif
@@ -2704,6 +2935,12 @@ static void frame_tick(lv_timer_t *timer)
         ((mode == MUSE_MODE_LISTENING) != (muse_voice_call_view() == MUSE_VOICE_VIEW_LISTENING))) level = 0;
     s_level += (level - s_level) * (level > s_level ? 0.6f : 0.2f);
 
+#if MUSE_B_LIGHT
+    const lv_image_dsc_t *portrait = muse_b_portrait(mode, muse_state_happiness() > 0);
+    if (lv_image_get_src(s_canvas) != portrait) {
+        lv_image_set_src(s_canvas, portrait);
+    }
+#else
     muse_pose_t pose = {
         /* A pending reply keeps its green progress ring, but isn't speech. */
         .mode = mode == MUSE_MODE_SPEAKING && muse_voice_reply_waiting() ? MUSE_MODE_IDLE : mode,
@@ -2765,6 +3002,7 @@ static void frame_tick(lv_timer_t *timer)
         s_last_epaper_pose = mode;
     }
 
+#endif
     update_status(mode, now);
 }
 
@@ -2808,6 +3046,9 @@ esp_err_t muse_ui_start(void)
         return ESP_FAIL;
     }
 
+#if MUSE_B_LIGHT
+    s_canvas_px = MUSE_B_PORTRAIT_PX;
+#endif
     s_image_mutex = xSemaphoreCreateMutex();
     muse_board->display_lock(-1);
     /* Until someone picks a Text size, replies keep the size they had before
@@ -2815,13 +3056,17 @@ esp_err_t muse_ui_start(void)
      * unscii-16 (doubled from 400 px) on a bigger screen's. Brazilian
      * Portuguese has accented letters on most pages, which unscii lacks, so
      * there a bigger screen starts at Large, Montserrat 28 with the letters. */
-#if CONFIG_MUSE_UI_LANG_PT_BR
+#if MUSE_B_LIGHT
+    muse_settings_set_text_size_default(MUSE_TEXT_SMALL);
+#elif CONFIG_MUSE_UI_LANG_PT_BR
     muse_settings_set_text_size_default(s_small ? MUSE_TEXT_SMALL : MUSE_TEXT_LARGE);
 #else
     muse_settings_set_text_size_default(s_small ? MUSE_TEXT_SMALL : MUSE_TEXT_XLARGE);
 #endif
     muse_theme_lvgl_init();
+#if !MUSE_B_LIGHT
     muse_pixel_set_background(muse_theme_background());
+#endif
     build_screen();
     if (s_settings) {
         muse_settings_ui_build(s_settings);

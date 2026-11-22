@@ -38,7 +38,7 @@
 #if CONFIG_MUSE_VIDEO_WIFI
 #include "muse_video_wifi.h"
 #endif
-#if CONFIG_MUSE_BOARD_SENSECAP_WATCHER || CONFIG_MUSE_LATEST_REPLY
+#if CONFIG_MUSE_BOARD_SENSECAP_WATCHER || CONFIG_MUSE_LATEST_REPLY || CONFIG_MUSE_UI_B_LIGHT
 #include "muse_review.h"
 #endif
 
@@ -84,8 +84,8 @@ void muse_app_run(const muse_board_t *board)
 #if CONFIG_MUSE_AVATAR_SYNC
     muse_avatar_start();
 #endif
-#if CONFIG_MUSE_BOARD_SENSECAP_WATCHER || CONFIG_MUSE_LATEST_REPLY
-#if CONFIG_MUSE_LATEST_REPLY
+#if CONFIG_MUSE_BOARD_SENSECAP_WATCHER || CONFIG_MUSE_LATEST_REPLY || CONFIG_MUSE_UI_B_LIGHT
+#if CONFIG_MUSE_LATEST_REPLY || CONFIG_MUSE_UI_B_LIGHT
     if (muse_review_init() != ESP_OK) ESP_LOGW(TAG, "latest reply storage unavailable");
 #else
     ESP_ERROR_CHECK(muse_review_init());

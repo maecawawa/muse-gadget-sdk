@@ -20,7 +20,7 @@
 #include "src/drivers/sdl/lv_sdl_mouse.h"
 #include "src/drivers/sdl/lv_sdl_window.h"
 
-#if CONFIG_MUSE_LATEST_REPLY
+#if CONFIG_MUSE_LATEST_REPLY || CONFIG_MUSE_UI_B_LIGHT
 #define WATCHER_RESOLUTION 466
 #else
 #define WATCHER_RESOLUTION 412
@@ -88,15 +88,30 @@ static esp_err_t sim_audio_init(esp_codec_dev_handle_t *speaker, esp_codec_dev_h
 }
 
 static const muse_board_t s_sim_board = {
+#if CONFIG_MUSE_UI_B_LIGHT
+    .name = "M5Stack StopWatch Simulator",
+    .rim_controls = true,
+    .speaker_hint = { LV_ALIGN_CENTER, -144, -110 },
+    .power_hint = { LV_ALIGN_CENTER, -144, 110 },
+    .power_button = "red bottom-left",
+#else
     .name = "SenseCAP Watcher Simulator",
+#endif
     .width = WATCHER_RESOLUTION,
     .height = WATCHER_RESOLUTION,
     .round = true,
     .touch = true,
+#if CONFIG_MUSE_UI_B_LIGHT
+    .diagonal_in = 1.75f,
+    .talk_button = "top-right",
+    .speaker_button = "top-left",
+    .talk_hint = { LV_ALIGN_CENTER, 144, -110 },
+#else
     .diagonal_in = 1.45f,
     .talk_button = "wheel",
     .aux_button = "scroll",
     .talk_hint = { LV_ALIGN_CENTER, 100, -143 },
+#endif
     .frame_ms = 40,
     .init = sim_init,
     .display_start = sim_display_start,
