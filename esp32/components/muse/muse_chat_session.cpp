@@ -2241,6 +2241,15 @@ static bool fish_open(const char *text)
 }
 #endif
 
+#if CONFIG_MUSE_FISH_TTS && CONFIG_MUSE_FISH_TTS_GAIN_DB > 0
+static struct {
+    size_t samples;
+    size_t limited;
+    int peak_before;
+    int peak_after;
+} s_fish_gain_stats;
+#endif
+
 static void start_tts(void)
 {
     if (s_turn.tts_msg >= 0) {
@@ -2257,6 +2266,9 @@ static void start_tts(void)
         s_turn.silent = true;
         ESP_LOGI(TAG, "showing message %s (%u chars)", m.id, (unsigned)m.len);
         show_reply_start(m);
+#if CONFIG_MUSE_FISH_TTS && CONFIG_MUSE_FISH_TTS_GAIN_DB > 0
+        s_fish_gain_stats = {};
+#endif
 #if CONFIG_MUSE_FISH_TTS
         const char *text = s_turn.texts ? s_turn.texts + i * TEXT_MAX : nullptr;
         s_turn.silent = !fish_open(text);
@@ -2350,17 +2362,40 @@ static void fish_apply_playback_gain(int16_t *pcm, size_t n)
     constexpr float full_scale = 32767.0f;
     constexpr float knee = 0.89f * full_scale;
     constexpr float headroom = full_scale - knee;
+    s_fish_gain_stats.samples += n;
     for (size_t i = 0; i < n; ++i) {
+        const int before = std::abs(static_cast<int>(pcm[i]));
+        if (before > s_fish_gain_stats.peak_before) {
+            s_fish_gain_stats.peak_before = before;
+        }
         const float amplified = pcm[i] * gain;
         const float magnitude = std::fabs(amplified);
         float limited = magnitude;
         if (magnitude > knee) {
+            ++s_fish_gain_stats.limited;
             // Match the linear slope at the knee and approach full scale smoothly.
             const float excess = magnitude - knee;
             limited = knee + headroom * excess / (headroom + excess);
         }
         pcm[i] = static_cast<int16_t>(std::copysign(limited, amplified));
+        const int after = std::abs(static_cast<int>(pcm[i]));
+        if (after > s_fish_gain_stats.peak_after) {
+            s_fish_gain_stats.peak_after = after;
+        }
     }
+}
+
+static void fish_log_playback_gain(void)
+{
+    if (!s_fish_gain_stats.samples) {
+        return;
+    }
+    // Normalize against the 16-bit PCM full-scale magnitude. A silent peak is -inf.
+    ESP_LOGI(TAG, "tts gain +%d dB, peak %.1f -> %.1f dBFS, limited %.1f%%",
+             CONFIG_MUSE_FISH_TTS_GAIN_DB,
+             20.0 * std::log10(s_fish_gain_stats.peak_before / 32768.0),
+             20.0 * std::log10(s_fish_gain_stats.peak_after / 32768.0),
+             100.0 * s_fish_gain_stats.limited / s_fish_gain_stats.samples);
 }
 #endif
 
@@ -2427,6 +2462,9 @@ static void decode(void)
         m.pcm_frames = s_turn.pcm_out - m.pcm_start + rest;
     }
     if (s_turn.mp3_ended && !s_turn.mp3_len) {
+#if CONFIG_MUSE_FISH_TTS && CONFIG_MUSE_FISH_TTS_GAIN_DB > 0
+        fish_log_playback_gain();
+#endif
         m.pcm_end = s_turn.pcm_out;
         m.pcm_frames = s_turn.pcm_out - m.pcm_start;
         m.tts = TTS_FINISHED;
